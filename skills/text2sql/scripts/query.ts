@@ -57,16 +57,80 @@ function parseArgs(argv: string[]): {
   return result;
 }
 
-function main(): void {
+function parseTableArg(tableArg: string): { schema: string; table: string } {
+  const dot = tableArg.indexOf(".");
+  if (dot >= 0) {
+    return { schema: tableArg.slice(0, dot), table: tableArg.slice(dot + 1) };
+  }
+  return { schema: "public", table: tableArg };
+}
+
+function escapeCsv(value: string): string {
+  if (/[",\n\r]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
+}
+
+async function runListTables(client: Client): Promise<void> {
+  const res = await client.query<{ table_schema: string; table_name: string }>(
+    `SELECT table_schema, table_name
+     FROM information_schema.tables
+     WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+     ORDER BY table_schema, table_name`,
+  );
+  for (const row of res.rows) {
+    const name =
+      row.table_schema === "public" ? row.table_name : `${row.table_schema}.${row.table_name}`;
+    console.log(name);
+  }
+}
+
+async function runSchema(client: Client, tableArg: string): Promise<void> {
+  const { schema, table } = parseTableArg(tableArg);
+  const res = await client.query<{ column_name: string; data_type: string }>(
+    `SELECT column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema = $1 AND table_name = $2
+     ORDER BY ordinal_position`,
+    [schema, table],
+  );
+  if (res.rows.length === 0) {
+    console.error(`Table not found: ${tableArg}`);
+    process.exit(1);
+  }
+  console.log("column_name,data_type");
+  for (const row of res.rows) {
+    console.log(`${escapeCsv(row.column_name)},${escapeCsv(row.data_type)}`);
+  }
+}
+
+async function main(): Promise<void> {
   if (!process.env.DATABASE_URL) {
     console.error("DATABASE_URL is not set. Set it to a read-only PostgreSQL connection string.");
     process.exit(1);
   }
 
   const opts = parseArgs(process.argv);
-  // Stub: no DB calls yet; just confirm parsing.
-  void Client; // use dependency so build doesn't drop it
-  console.log("OK");
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
+
+  try {
+    await client.connect();
+    if (opts.cmd === "list_tables") {
+      await runListTables(client);
+    } else if (opts.cmd === "schema" && opts.table) {
+      await runSchema(client, opts.table);
+    } else if (opts.cmd === "sample" || opts.cmd === "query") {
+      console.error("Not implemented yet");
+      process.exit(1);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(msg);
+    process.exit(1);
+  } finally {
+    await client.end();
+  }
 }
 
 main();
