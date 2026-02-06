@@ -20,4 +20,16 @@ describe("isReadOnlySelect", () => {
     expect(isReadOnlySelect("WITH x AS (SELECT 1) SELECT * FROM x")).toBe(true);
     expect(isReadOnlySelect("; SELECT * FROM t")).toBe(false);
   });
+
+  it("allows lowercase SELECT", () => {
+    expect(isReadOnlySelect("select * from users")).toBe(true);
+  });
+
+  it("allows comment-wrapped forbidden word (stripped before check)", () => {
+    expect(isReadOnlySelect("SELECT /* DROP */ 1")).toBe(true);
+  });
+
+  it("rejects when forbidden keyword appears in string literal (validator limitation)", () => {
+    expect(isReadOnlySelect("SELECT * FROM t WHERE name = 'DELETE me'")).toBe(false);
+  });
 });

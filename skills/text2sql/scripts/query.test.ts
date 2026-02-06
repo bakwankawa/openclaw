@@ -10,6 +10,7 @@ function runScript(args: string[], env?: NodeJS.ProcessEnv) {
   return spawnSync("node", ["--import", "tsx", script, ...args], {
     env: env ?? process.env,
     encoding: "utf8",
+    timeout: 15_000,
   });
 }
 

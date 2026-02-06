@@ -14,7 +14,7 @@ Answer natural-language questions about data in a PostgreSQL database by turning
 
 - User asks for data from "the database", "Postgres", "our DB", "pipeline data", "table data", "run a query", "export to CSV", or similar.
 - User asks for table names (e.g. "what tables are there", "nama tabel ada apa aja", "list tables").
-- Requires `DATABASE_URL` (PostgreSQL connection string). Use a read-only user when possible.
+- Requires `DATABASE_URL`. A read-only database user is strongly recommended — the built-in SQL validator provides defense-in-depth but should not be the sole safeguard.
 
 ## Critical: use the script, do not search the workspace
 

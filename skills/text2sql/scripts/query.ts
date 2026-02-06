@@ -141,8 +141,9 @@ async function runSample(client: Client, tableArg: string, limit: number): Promi
 
 async function runQuery(client: Client, sql: string, limit: number): Promise<void> {
   const capped = Math.min(Math.max(1, limit), QUERY_LIMIT_MAX);
-  const hasLimit = /\bLIMIT\s+\d+/i.test(sql);
-  const finalSql = hasLimit ? sql : `${sql.trimEnd().replace(/;\s*$/, "")} LIMIT ${capped}`;
+  const normalized = sql.trimEnd().replace(/;\s*$/, "");
+  const hasLimit = /LIMIT\s+\d+(\s+OFFSET\s+\d+)?\s*$/i.test(normalized);
+  const finalSql = hasLimit ? sql : `${normalized} LIMIT ${capped}`;
   const res = await client.query({ text: finalSql, rowMode: "object" });
   const fields = res.fields ?? [];
   if (fields.length > 0) {

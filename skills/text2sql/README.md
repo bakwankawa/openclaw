@@ -45,6 +45,7 @@ The script does **not** load `.env` itself; the process that runs the script mus
    CREATE ROLE read_only_user LOGIN PASSWORD '...';
    GRANT USAGE ON SCHEMA public TO read_only_user;
    GRANT SELECT ON ALL TABLES IN SCHEMA public TO read_only_user;
+   ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO read_only_user;
    ```
 
    Then set `DATABASE_URL` to use `read_only_user`. The script also rejects non-SELECT SQL before sending it to the DB.
