@@ -292,13 +292,13 @@ export class MemoryIndexManager implements MemorySearchManager {
     );
 
     const keywordResults = hybrid.enabled
-      ? await this.searchKeyword(cleaned, candidates).catch(() => [])
+      ? await this.searchKeyword(cleaned, candidates, opts?.sessionKey).catch(() => [])
       : [];
 
     const queryVec = await this.embedQueryWithTimeout(cleaned);
     const hasVector = queryVec.some((v) => v !== 0);
     const vectorResults = hasVector
-      ? await this.searchVector(queryVec, candidates).catch(() => [])
+      ? await this.searchVector(queryVec, candidates, opts?.sessionKey).catch(() => [])
       : [];
 
     if (!hybrid.enabled) {
@@ -318,6 +318,7 @@ export class MemoryIndexManager implements MemorySearchManager {
   private async searchVector(
     queryVec: number[],
     limit: number,
+    sessionKey?: string,
   ): Promise<Array<MemorySearchResult & { id: string }>> {
     const results = await searchVector({
       db: this.db,
@@ -329,6 +330,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       ensureVectorReady: async (dimensions) => await this.ensureVectorReady(dimensions),
       sourceFilterVec: this.buildSourceFilter("c"),
       sourceFilterChunks: this.buildSourceFilter(),
+      sessionKey,
     });
     return results.map((entry) => entry as MemorySearchResult & { id: string });
   }
@@ -340,6 +342,7 @@ export class MemoryIndexManager implements MemorySearchManager {
   private async searchKeyword(
     query: string,
     limit: number,
+    sessionKey?: string,
   ): Promise<Array<MemorySearchResult & { id: string; textScore: number }>> {
     if (!this.fts.enabled || !this.fts.available) {
       return [];
@@ -355,6 +358,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       sourceFilter,
       buildFtsQuery: (raw) => this.buildFtsQuery(raw),
       bm25RankToScore,
+      sessionKey,
     });
     return results.map((entry) => entry as MemorySearchResult & { id: string; textScore: number });
   }
