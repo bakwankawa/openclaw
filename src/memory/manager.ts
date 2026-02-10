@@ -348,19 +348,48 @@ export class MemoryIndexManager implements MemorySearchManager {
       return [];
     }
     const sourceFilter = this.buildSourceFilter();
-    const results = await searchKeyword({
-      db: this.db,
-      ftsTable: FTS_TABLE,
-      providerModel: this.provider.model,
-      query,
-      limit,
-      snippetMaxChars: SNIPPET_MAX_CHARS,
-      sourceFilter,
-      buildFtsQuery: (raw) => this.buildFtsQuery(raw),
-      bm25RankToScore,
-      sessionKey,
-    });
-    return results.map((entry) => entry as MemorySearchResult & { id: string; textScore: number });
+    try {
+      const results = await searchKeyword({
+        db: this.db,
+        ftsTable: FTS_TABLE,
+        providerModel: this.provider.model,
+        query,
+        limit,
+        snippetMaxChars: SNIPPET_MAX_CHARS,
+        sourceFilter,
+        buildFtsQuery: (raw) => this.buildFtsQuery(raw),
+        bm25RankToScore,
+        sessionKey,
+      });
+      return results.map(
+        (entry) => entry as MemorySearchResult & { id: string; textScore: number },
+      );
+    } catch (err) {
+      // Fallback for existing FTS tables without session_key column
+      const message = err instanceof Error ? err.message : String(err);
+      if (
+        sessionKey &&
+        (message.includes("no such column: session_key") || message.includes("no such column"))
+      ) {
+        // Retry without sessionKey filter for backward compatibility
+        const results = await searchKeyword({
+          db: this.db,
+          ftsTable: FTS_TABLE,
+          providerModel: this.provider.model,
+          query,
+          limit,
+          snippetMaxChars: SNIPPET_MAX_CHARS,
+          sourceFilter,
+          buildFtsQuery: (raw) => this.buildFtsQuery(raw),
+          bm25RankToScore,
+          sessionKey: undefined,
+        });
+        return results.map(
+          (entry) => entry as MemorySearchResult & { id: string; textScore: number },
+        );
+      }
+      throw err;
+    }
   }
 
   private mergeHybridResults(params: {
@@ -2392,21 +2421,49 @@ export class MemoryIndexManager implements MemorySearchManager {
           .run(id, vectorToBlob(embedding));
       }
       if (this.fts.enabled && this.fts.available) {
-        this.db
-          .prepare(
-            `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line, session_key)\n` +
-              ` VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            chunk.text,
-            id,
-            entry.path,
-            options.source,
-            this.provider.model,
-            chunk.startLine,
-            chunk.endLine,
-            sessionKey ?? null,
-          );
+        try {
+          // Try inserting with session_key (new schema)
+          this.db
+            .prepare(
+              `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line, session_key)\n` +
+                ` VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              chunk.text,
+              id,
+              entry.path,
+              options.source,
+              this.provider.model,
+              chunk.startLine,
+              chunk.endLine,
+              sessionKey ?? null,
+            );
+        } catch (err) {
+          // Fallback for existing FTS tables without session_key column
+          // This handles databases created before session_key was added
+          const message = err instanceof Error ? err.message : String(err);
+          if (
+            message.includes("no such column: session_key") ||
+            message.includes("no such column")
+          ) {
+            this.db
+              .prepare(
+                `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line)\n` +
+                  ` VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              )
+              .run(
+                chunk.text,
+                id,
+                entry.path,
+                options.source,
+                this.provider.model,
+                chunk.startLine,
+                chunk.endLine,
+              );
+          } else {
+            throw err;
+          }
+        }
       }
     }
     this.db

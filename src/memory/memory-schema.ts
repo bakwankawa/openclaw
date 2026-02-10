@@ -81,6 +81,7 @@ export function ensureMemoryIndexSchema(params: {
   ensureColumn(params.db, "chunks", "session_key", "TEXT");
   params.db.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path);`);
   params.db.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);`);
+  params.db.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_session_key ON chunks(session_key);`);
 
   return { ftsAvailable, ...(ftsError ? { ftsError } : {}) };
 }

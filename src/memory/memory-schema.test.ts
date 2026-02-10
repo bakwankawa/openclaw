@@ -23,4 +23,25 @@ describe("memory schema sessionKey column", () => {
 
     db.close();
   });
+
+  it("creates index on session_key column", () => {
+    const { DatabaseSync } = requireNodeSqlite();
+    const db = new DatabaseSync(":memory:");
+    ensureMemoryIndexSchema({
+      db,
+      embeddingCacheTable: "embedding_cache",
+      ftsTable: "fts_memory",
+      ftsEnabled: false,
+    });
+
+    const indexes = db
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='chunks' AND name='idx_chunks_session_key'`,
+      )
+      .all() as Array<{ name: string }>;
+    expect(indexes.length).toBe(1);
+    expect(indexes[0].name).toBe("idx_chunks_session_key");
+
+    db.close();
+  });
 });
