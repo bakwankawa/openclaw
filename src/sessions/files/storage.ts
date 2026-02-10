@@ -32,8 +32,11 @@ export async function saveFile(params: {
   const baseDir = filesDir ?? resolveSessionFilesDir(sessionId, agentId);
   const indexPath = path.join(baseDir, "index.json");
 
+  // Sanitize filename to prevent path traversal (strip directory components)
+  const sanitizedFilename = path.basename(filename);
+
   const fileId = `${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
-  const fileBase = `${fileId}-${filename}`;
+  const fileBase = `${fileId}-${sanitizedFilename}`;
   const mdPath = path.join(baseDir, `${fileBase}.md`);
 
   await fs.mkdir(baseDir, { recursive: true });
@@ -75,7 +78,7 @@ export async function saveFile(params: {
 
   const metadata: SessionFileMetadata = {
     id: fileId,
-    filename,
+    filename: sanitizedFilename,
     type,
     storageFormat: "markdown", // Always markdown
     uploadedAt: Date.now(),
@@ -114,7 +117,9 @@ export async function getFile(params: {
     throw new Error(`File ${fileId} not found`);
   }
 
-  const fileBase = `${fileId}-${file.filename}`;
+  // Sanitize filename from metadata to prevent path traversal (defense in depth)
+  const sanitizedFilename = path.basename(file.filename);
+  const fileBase = `${fileId}-${sanitizedFilename}`;
   const mdPath = path.join(baseDir, `${fileBase}.md`);
   const rawPath = path.join(baseDir, `${fileBase}.raw`);
 
@@ -159,7 +164,9 @@ export async function getParsedCsv(params: {
   if (file.type !== "csv") {
     throw new Error(`File ${fileId} is not a CSV file`);
   }
-  const fileBase = `${fileId}-${file.filename}`;
+  // Sanitize filename from metadata to prevent path traversal (defense in depth)
+  const sanitizedFilename = path.basename(file.filename);
+  const fileBase = `${fileId}-${sanitizedFilename}`;
   const parsedPath = path.join(baseDir, `${fileBase}.parsed.json`);
   const content = await fs.readFile(parsedPath, "utf-8");
   return JSON.parse(content) as { columns: string[]; rows: Record<string, unknown>[] };
@@ -179,7 +186,9 @@ export async function deleteFile(params: {
   if (!file) {
     return; // Already deleted
   }
-  const fileBase = `${fileId}-${file.filename}`;
+  // Sanitize filename from metadata to prevent path traversal (defense in depth)
+  const sanitizedFilename = path.basename(file.filename);
+  const fileBase = `${fileId}-${sanitizedFilename}`;
   const mdPath = path.join(baseDir, `${fileBase}.md`);
   const rawPath = path.join(baseDir, `${fileBase}.raw`);
 

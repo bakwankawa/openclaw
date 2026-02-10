@@ -126,7 +126,7 @@ export function createSessionFilesListTool(options: {
   agentSessionKey?: string;
 }): AnyAgentTool | null {
   const cfg = options.config;
-  if (!cfg) {
+  if (!cfg || cfg.session?.files?.enabled === false) {
     return null;
   }
   const agentId = resolveSessionAgentId({
@@ -172,7 +172,7 @@ export function createSessionFilesGetTool(options: {
   agentSessionKey?: string;
 }): AnyAgentTool | null {
   const cfg = options.config;
-  if (!cfg) {
+  if (!cfg || cfg.session?.files?.enabled === false) {
     return null;
   }
   const agentId = resolveSessionAgentId({
@@ -220,7 +220,7 @@ export function createSessionFilesQueryCsvTool(options: {
   agentSessionKey?: string;
 }): AnyAgentTool | null {
   const cfg = options.config;
-  if (!cfg) {
+  if (!cfg || cfg.session?.files?.enabled === false) {
     return null;
   }
   const agentId = resolveSessionAgentId({
@@ -297,7 +297,7 @@ export function createSessionFilesSearchTool(options: {
   agentSessionKey?: string;
 }): AnyAgentTool | null {
   const cfg = options.config;
-  if (!cfg) {
+  if (!cfg || cfg.session?.files?.enabled === false) {
     return null;
   }
   const agentId = resolveSessionAgentId({
@@ -355,7 +355,7 @@ export function createSessionFilesDeleteTool(options: {
   agentSessionKey?: string;
 }): AnyAgentTool | null {
   const cfg = options.config;
-  if (!cfg) {
+  if (!cfg || cfg.session?.files?.enabled === false) {
     return null;
   }
   const agentId = resolveSessionAgentId({

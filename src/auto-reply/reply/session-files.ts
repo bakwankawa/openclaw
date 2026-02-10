@@ -86,8 +86,8 @@ export async function persistSessionFiles(params: {
   // For now, we only support local file paths (MediaPaths)
   // URL-based files would require downloading first
   for (let i = 0; i < attachments.length; i++) {
-    const path = attachments[i];
-    if (!path) {
+    const filePath = attachments[i];
+    if (!filePath) {
       continue;
     }
 
@@ -96,7 +96,7 @@ export async function persistSessionFiles(params: {
     if (!normalizedMime || !SUPPORTED_MIMES.has(normalizedMime)) {
       if (shouldLogVerbose()) {
         logVerbose(
-          `session-files: skipping unsupported MIME type ${normalizedMime ?? mime} for ${path}`,
+          `session-files: skipping unsupported MIME type ${normalizedMime ?? mime} for ${filePath}`,
         );
       }
       continue;
@@ -109,8 +109,8 @@ export async function persistSessionFiles(params: {
 
     try {
       const fs = await import("node:fs/promises");
-      const buffer = await fs.readFile(path);
-      const filename = path.split("/").pop() ?? `file-${i + 1}`;
+      const buffer = await fs.readFile(filePath);
+      const filename = path.basename(filePath) || `file-${i + 1}`;
 
       await saveFile({
         sessionId,
@@ -128,7 +128,7 @@ export async function persistSessionFiles(params: {
     } catch (err) {
       // Don't block on errors - log and continue
       if (shouldLogVerbose()) {
-        logVerbose(`session-files: failed to persist ${path}: ${String(err)}`);
+        logVerbose(`session-files: failed to persist ${filePath}: ${String(err)}`);
       }
     }
   }

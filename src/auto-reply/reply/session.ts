@@ -33,6 +33,9 @@ import { formatInboundBodyWithSenderMeta } from "./inbound-sender-meta.js";
 import { normalizeInboundTextNewlines } from "./inbound-text.js";
 import { stripMentions, stripStructuralPrefixes } from "./mentions.js";
 
+// Throttle map for cleanupExpiredFiles calls (per session)
+const cleanupThrottleMap = new Map<string, number>();
+
 export type SessionInitResult = {
   sessionCtx: TemplateContext;
   sessionEntry: SessionEntry;
@@ -372,15 +375,24 @@ export async function initSessionState(params: {
     IsNewSession: isNewSession ? "true" : "false",
   };
 
-  // Cleanup expired session files (non-blocking, lazy cleanup)
+  // Cleanup expired session files (non-blocking, lazy cleanup, throttled)
   if (sessionId) {
-    const { cleanupExpiredFiles } = await import("../../sessions/files/cleanup.js");
-    cleanupExpiredFiles({
-      sessionId,
-      agentId,
-    }).catch(() => {
-      // Don't block on cleanup errors
-    });
+    // Throttle cleanup to once per session per 5 minutes to avoid excessive I/O
+    const cleanupThrottleKey = `${sessionId}:${agentId ?? "default"}`;
+    const lastCleanup = cleanupThrottleMap.get(cleanupThrottleKey) ?? 0;
+    const now = Date.now();
+    const CLEANUP_THROTTLE_MS = 5 * 60 * 1000; // 5 minutes
+
+    if (now - lastCleanup >= CLEANUP_THROTTLE_MS) {
+      cleanupThrottleMap.set(cleanupThrottleKey, now);
+      const { cleanupExpiredFiles } = await import("../../sessions/files/cleanup.js");
+      cleanupExpiredFiles({
+        sessionId,
+        agentId,
+      }).catch(() => {
+        // Don't block on cleanup errors
+      });
+    }
   }
 
   return {

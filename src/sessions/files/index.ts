@@ -7,9 +7,13 @@ export async function loadIndex(indexPath: string): Promise<SessionFilesIndex> {
     const content = await fs.readFile(indexPath, "utf-8");
     const parsed = JSON.parse(content) as SessionFilesIndex;
     return parsed;
-  } catch {
+  } catch (err) {
     // File doesn't exist, return empty index
-    return { files: [] };
+    if (err && typeof err === "object" && "code" in err && err.code === "ENOENT") {
+      return { files: [] };
+    }
+    // Other errors (e.g., JSON.parse failures) should be surfaced
+    throw err;
   }
 }
 

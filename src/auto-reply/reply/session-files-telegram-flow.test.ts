@@ -83,11 +83,12 @@ describe("Telegram file upload flow - end-to-end", () => {
       .catch(() => false);
     expect(rawExists).toBe(false);
 
-    // Step 3: Verify content is markdown table format
+    // Step 3: Verify content is raw CSV format
     const { buffer } = await getFile({ sessionId, agentId, fileId, filesDir: testFilesDir });
     const content = buffer.toString("utf-8");
-    expect(content).toContain("|");
-    expect(content).toContain("---");
+    // CSV should contain commas (not markdown table markers)
+    expect(content).toContain(",");
+    expect(content).not.toMatch(/\|\s*\n\s*\|[\s-]+\|/); // No markdown table separator
     expect(content.length).toBeGreaterThan(100);
 
     // Step 4: Verify CSV parsing still works (.parsed.json exists)
@@ -130,8 +131,11 @@ describe("Telegram file upload flow - end-to-end", () => {
 
     const { buffer } = await getFile({ sessionId, agentId, fileId, filesDir: testFilesDir });
     const content = buffer.toString("utf-8");
-    expect(content).toContain("```json");
-    expect(content).toContain("```");
+    // JSON should be raw (not wrapped in markdown code fences)
+    expect(content).toContain("{");
+    expect(content).toContain("}");
+    expect(content).not.toContain("```json");
+    expect(content).not.toContain("```");
   });
 
   it("saves text file from Telegram as .md", async () => {
@@ -192,9 +196,9 @@ describe("Telegram file upload flow - end-to-end", () => {
     });
     const content = buffer.toString("utf-8");
 
-    // Verify content is markdown format (as agent would receive)
-    expect(content).toContain("|");
-    expect(content).toContain("---");
+    // Verify content is raw CSV format (not markdown)
+    expect(content).toContain(","); // CSV should contain commas
+    expect(content).not.toMatch(/\|\s*\n\s*\|[\s-]+\|/); // No markdown table separator
     expect(metadata.type).toBe("csv");
     expect(metadata.filename).toBe("bot knowledge test.csv");
   });

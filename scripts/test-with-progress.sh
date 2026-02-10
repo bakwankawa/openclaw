@@ -1,7 +1,7 @@
 #!/bin/bash
 # Test runner dengan progress indicator yang lebih jelas
 
-set -e
+set -eo pipefail
 
 echo "🧪 Starting tests with progress indicator..."
 echo ""

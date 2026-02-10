@@ -69,10 +69,9 @@ export async function handleToolExecutionStart(
   );
 
   const shouldEmitToolEvents = ctx.shouldEmitToolResult();
-  // Log tool start for debugging visibility (direct console.log to ensure visibility)
+  // Log tool start for debugging visibility
   const toolLogMsg = `[tool] ${toolName} start (${toolCallId.slice(0, 8)})`;
-  console.warn(toolLogMsg);
-  ctx.log.warn(toolLogMsg);
+  ctx.log.debug(toolLogMsg);
   emitAgentEvent({
     runId: ctx.params.runId,
     stream: "tool",
@@ -197,10 +196,13 @@ export function handleToolExecutionEnd(
     }
   }
 
-  // Log tool result for debugging visibility (direct console.log to ensure visibility)
+  // Log tool result for debugging visibility
   const resultLogMsg = `[tool] ${toolName} result (${toolCallId.slice(0, 8)})${isToolError ? " [ERROR]" : ""}`;
-  console.warn(resultLogMsg);
-  ctx.log.warn(resultLogMsg);
+  if (isToolError) {
+    ctx.log.warn(resultLogMsg);
+  } else {
+    ctx.log.debug(resultLogMsg);
+  }
   emitAgentEvent({
     runId: ctx.params.runId,
     stream: "tool",
