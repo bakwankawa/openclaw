@@ -1,0 +1,32 @@
+#!/bin/bash
+# Helper script to manage Telegram allowlist
+
+case "$1" in
+  list)
+    pnpm openclaw config get channels.telegram.allowFrom
+    ;;
+  add)
+    if [ -z "$2" ]; then
+      echo "Usage: $0 add <@username or user_id>"
+      exit 1
+    fi
+    CURRENT=$(pnpm openclaw config get channels.telegram.allowFrom 2>/dev/null | jq -r '. // []')
+    NEW=$(echo "$CURRENT" | jq ". + [\"$2\"]")
+    pnpm openclaw config set channels.telegram.allowFrom "$NEW" --json
+    echo "Added $2 to allowlist"
+    ;;
+  remove)
+    if [ -z "$2" ]; then
+      echo "Usage: $0 remove <@username or user_id>"
+      exit 1
+    fi
+    CURRENT=$(pnpm openclaw config get channels.telegram.allowFrom 2>/dev/null | jq -r '. // []')
+    NEW=$(echo "$CURRENT" | jq "map(select(. != \"$2\"))")
+    pnpm openclaw config set channels.telegram.allowFrom "$NEW" --json
+    echo "Removed $2 from allowlist"
+    ;;
+  *)
+    echo "Usage: $0 {list|add|remove} [username]"
+    exit 1
+    ;;
+esac
