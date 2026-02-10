@@ -49,6 +49,57 @@ describe("agent event handler", () => {
     nowSpy.mockRestore();
   });
 
+  it("logs tool events to console via subsystem logger", () => {
+    const broadcast = vi.fn();
+    const broadcastToConnIds = vi.fn();
+    const nodeSendToSession = vi.fn();
+    const agentRunSeq = new Map<string, number>();
+    const chatRunState = createChatRunState();
+    const toolEventRecipients = createToolEventRecipientRegistry();
+
+    // Mock console.warn to capture log output
+    const consoleWarnCalls: string[] = [];
+    const originalConsoleWarn = console.warn;
+    console.warn = vi.fn((...args: unknown[]) => {
+      const msg = args.map(String).join(" ");
+      consoleWarnCalls.push(msg);
+      originalConsoleWarn(...args);
+    });
+
+    const handler = createAgentEventHandler({
+      broadcast,
+      broadcastToConnIds,
+      nodeSendToSession,
+      agentRunSeq,
+      chatRunState,
+      resolveSessionKeyForRun: () => "main",
+      clearAgentRunContext: vi.fn(),
+      toolEventRecipients,
+    });
+
+    // Simulate tool execution start event
+    handler({
+      runId: "run-tool-test",
+      seq: 1,
+      stream: "tool",
+      ts: Date.now(),
+      data: {
+        phase: "start",
+        name: "session_files_list",
+        toolCallId: "tool-call-12345",
+      },
+    });
+
+    // Verify tool event was logged
+    const toolLogCall = consoleWarnCalls.find(
+      (msg) => msg.includes("tool start") || msg.includes("session_files_list"),
+    );
+    expect(toolLogCall).toBeTruthy();
+
+    // Restore console.warn
+    console.warn = originalConsoleWarn;
+  });
+
   it("routes tool events only to registered recipients when verbose is enabled", () => {
     const broadcast = vi.fn();
     const broadcastToConnIds = vi.fn();

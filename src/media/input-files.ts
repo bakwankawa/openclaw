@@ -194,7 +194,7 @@ function clampText(text: string, maxChars: number): string {
   return text.slice(0, maxChars);
 }
 
-async function extractPdfContent(params: {
+export async function extractPdfContent(params: {
   buffer: Buffer;
   limits: InputFileLimits;
 }): Promise<{ text: string; images: InputImageContent[] }> {

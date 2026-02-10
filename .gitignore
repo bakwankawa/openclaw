@@ -77,3 +77,4 @@ USER.md
 !.agent/workflows/
 .cursor/
 local/
+.worktrees/

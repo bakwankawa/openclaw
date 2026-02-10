@@ -159,6 +159,19 @@ export async function getReplyFromConfig(
     bodyStripped,
   } = sessionState;
 
+  // Persist session files after sessionId is available
+  if (!isFastTestEnv && (finalized.MediaPaths?.length ?? 0) > 0) {
+    const { persistSessionFiles } = await import("./session-files.js");
+    persistSessionFiles({
+      ctx: finalized,
+      sessionId,
+      agentSessionKey: agentSessionKey,
+      cfg,
+    }).catch(() => {
+      // Don't block on persist errors - already logged in persistSessionFiles
+    });
+  }
+
   await applyResetModelOverride({
     cfg,
     resetTriggered,

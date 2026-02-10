@@ -8,6 +8,7 @@ import type {
   MediaUnderstandingProvider,
 } from "./types.js";
 import { finalizeInboundContext } from "../auto-reply/reply/inbound-context.js";
+import { persistSessionFilesFromCache } from "../auto-reply/reply/session-files.js";
 import { logVerbose, shouldLogVerbose } from "../globals.js";
 import {
   DEFAULT_INPUT_FILE_MAX_BYTES,
@@ -457,6 +458,8 @@ export async function applyMediaUnderstanding(params: {
   agentDir?: string;
   providers?: Record<string, MediaUnderstandingProvider>;
   activeModel?: ActiveMediaModel;
+  sessionId?: string;
+  agentSessionKey?: string;
 }): Promise<ApplyMediaUnderstandingResult> {
   const { ctx, cfg } = params;
   const commandCandidates = [ctx.CommandBody, ctx.RawBody, ctx.Body];
@@ -535,6 +538,28 @@ export async function applyMediaUnderstanding(params: {
     if (fileBlocks.length > 0) {
       ctx.Body = appendFileBlocks(ctx.Body, fileBlocks);
     }
+
+    // Persist session files if sessionId is available
+    if (params.sessionId && fileBlocks.length > 0) {
+      try {
+        await persistSessionFilesFromCache({
+          attachments,
+          cache,
+          sessionId: params.sessionId,
+          agentSessionKey: params.agentSessionKey,
+          cfg,
+          limits: resolveFileLimits(cfg),
+          skipAttachmentIndexes:
+            audioAttachmentIndexes.size > 0 ? audioAttachmentIndexes : undefined,
+        });
+      } catch (err) {
+        // Don't block on persist errors
+        if (shouldLogVerbose()) {
+          logVerbose(`media: session files persist failed: ${String(err)}`);
+        }
+      }
+    }
+
     if (outputs.length > 0 || fileBlocks.length > 0) {
       finalizeInboundContext(ctx, {
         forceBodyForAgent: true,

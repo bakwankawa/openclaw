@@ -2,6 +2,7 @@ import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import { loadConfig } from "../config/config.js";
 import { type AgentEventPayload, getAgentRunContext } from "../infra/agent-events.js";
 import { resolveHeartbeatVisibility } from "../infra/heartbeat-visibility.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
 import { loadSessionEntry } from "./session-utils.js";
 import { formatForLog } from "./ws-log.js";
 
@@ -217,6 +218,8 @@ export type AgentEventHandlerOptions = {
   toolEventRecipients: ToolEventRecipientRegistry;
 };
 
+const agentEventLog = createSubsystemLogger("gateway/agent-events");
+
 export function createAgentEventHandler({
   broadcast,
   broadcastToConnIds,
@@ -328,6 +331,22 @@ export function createAgentEventHandler({
     const last = agentRunSeq.get(evt.runId) ?? 0;
     const isToolEvent = evt.stream === "tool";
     const toolVerbose = isToolEvent ? resolveToolVerboseLevel(evt.runId, sessionKey) : "off";
+
+    // Log tool events to console for visibility (always, regardless of verbose level)
+    if (isToolEvent) {
+      const data =
+        evt.data && typeof evt.data === "object" ? (evt.data as Record<string, unknown>) : {};
+      const phase = typeof data.phase === "string" ? data.phase : undefined;
+      const toolName = typeof data.name === "string" ? data.name : undefined;
+      const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : undefined;
+      if (phase && toolName) {
+        // Use warn level to ensure it always appears in console (warn level is always shown)
+        agentEventLog.warn(
+          `🛠️ tool ${phase}: ${toolName}${toolCallId ? ` (${toolCallId.slice(0, 8)})` : ""}${sessionKey ? ` [${sessionKey}]` : ""}`,
+        );
+      }
+    }
+
     if (isToolEvent && toolVerbose === "off") {
       agentRunSeq.set(evt.runId, evt.seq);
       return;

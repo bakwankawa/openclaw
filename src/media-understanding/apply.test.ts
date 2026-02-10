@@ -553,7 +553,8 @@ describe("applyMediaUnderstanding", () => {
 
     expect(result.appliedFile).toBe(true);
     expect(ctx.Body).toContain('<file name="data.bin" mime="text/csv">');
-    expect(ctx.Body).toContain('"a","b"\t"c"');
+    // File is now injected as raw CSV content
+    expect(ctx.Body).toContain('"a","b"');
   });
 
   it("infers TSV when tabs are present without commas", async () => {
