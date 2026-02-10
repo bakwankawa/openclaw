@@ -38,6 +38,7 @@ import {
   type OpenAiEmbeddingClient,
   type VoyageEmbeddingClient,
 } from "./embeddings.js";
+import { extractSessionKeyFromMemoryFile } from "./extract-session-key.js";
 import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
 import {
   buildFileEntry,
@@ -2315,6 +2316,10 @@ export class MemoryIndexManager implements MemorySearchManager {
     options: { source: MemorySource; content?: string },
   ) {
     const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
+
+    // Extract sessionKey from memory file metadata
+    const sessionKey = extractSessionKeyFromMemoryFile(content);
+
     const chunks = chunkMarkdown(content, this.settings.chunking).filter(
       (chunk) => chunk.text.trim().length > 0,
     );
@@ -2351,14 +2356,15 @@ export class MemoryIndexManager implements MemorySearchManager {
       );
       this.db
         .prepare(
-          `INSERT INTO chunks (id, path, source, start_line, end_line, hash, model, text, embedding, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO chunks (id, path, source, start_line, end_line, hash, model, text, embedding, updated_at, session_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              hash=excluded.hash,
              model=excluded.model,
              text=excluded.text,
              embedding=excluded.embedding,
-             updated_at=excluded.updated_at`,
+             updated_at=excluded.updated_at,
+             session_key=excluded.session_key`,
         )
         .run(
           id,
@@ -2371,6 +2377,7 @@ export class MemoryIndexManager implements MemorySearchManager {
           chunk.text,
           JSON.stringify(embedding),
           now,
+          sessionKey ?? null,
         );
       if (vectorReady && embedding.length > 0) {
         try {
@@ -2383,8 +2390,8 @@ export class MemoryIndexManager implements MemorySearchManager {
       if (this.fts.enabled && this.fts.available) {
         this.db
           .prepare(
-            `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line)\n` +
-              ` VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line, session_key)\n` +
+              ` VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             chunk.text,
@@ -2394,6 +2401,7 @@ export class MemoryIndexManager implements MemorySearchManager {
             this.provider.model,
             chunk.startLine,
             chunk.endLine,
+            sessionKey ?? null,
           );
       }
     }
