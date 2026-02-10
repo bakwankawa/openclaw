@@ -64,7 +64,8 @@ export function ensureMemoryIndexSchema(params: {
           `  source UNINDEXED,\n` +
           `  model UNINDEXED,\n` +
           `  start_line UNINDEXED,\n` +
-          `  end_line UNINDEXED\n` +
+          `  end_line UNINDEXED,\n` +
+          `  session_key UNINDEXED\n` +
           `);`,
       );
       ftsAvailable = true;
