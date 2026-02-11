@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { resetHdMemoryAdapterCache, setHdMemoryAdapter } from "../extensions/hd/memory-adapter.js";
 import { sleep } from "../utils.js";
 import {
   buildGroupDisplayName,
@@ -77,9 +78,24 @@ describe("sessions", () => {
     );
   });
 
-  it("isolates direct Telegram chats per sender when HD memory flag is enabled", () => {
+  it("isolates direct Telegram chats per sender when HD adapter is configured", () => {
     const original = process.env.HD_MEMORY_ENABLED;
     process.env.HD_MEMORY_ENABLED = "1";
+    setHdMemoryAdapter({
+      resolveDirectIsolationTarget: ({ surface, provider, from }) => {
+        const normalized = (surface ?? provider ?? "").trim().toLowerCase();
+        if (normalized !== "telegram") {
+          return undefined;
+        }
+        const rawFrom = (from ?? "").trim().toLowerCase();
+        const prefix = "telegram:";
+        const peerId = rawFrom.startsWith(prefix) ? rawFrom.slice(prefix.length).trim() : rawFrom;
+        if (!peerId || peerId === "unknown") {
+          return undefined;
+        }
+        return { channel: "telegram", peerId };
+      },
+    });
     try {
       expect(
         resolveSessionKey("per-sender", { From: "telegram:12345", Provider: "telegram" }, "main"),
@@ -93,12 +109,33 @@ describe("sessions", () => {
       } else {
         process.env.HD_MEMORY_ENABLED = original;
       }
+      setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
     }
   });
 
-  it("remaps explicit main session to per-sender key for Telegram when HD memory flag is enabled", () => {
+  it("remaps explicit main session to per-sender key for Telegram when HD adapter is configured", () => {
     const original = process.env.HD_MEMORY_ENABLED;
     process.env.HD_MEMORY_ENABLED = "1";
+    setHdMemoryAdapter({
+      resolveDirectIsolationTarget: ({ surface, provider, from, senderId }) => {
+        const normalized = (surface ?? provider ?? "").trim().toLowerCase();
+        if (normalized !== "telegram") {
+          return undefined;
+        }
+        const sender = (senderId ?? "").trim().toLowerCase();
+        if (sender && sender !== "unknown") {
+          return { channel: "telegram", peerId: sender };
+        }
+        const rawFrom = (from ?? "").trim().toLowerCase();
+        const prefix = "telegram:";
+        const peerId = rawFrom.startsWith(prefix) ? rawFrom.slice(prefix.length).trim() : rawFrom;
+        if (!peerId || peerId === "unknown") {
+          return undefined;
+        }
+        return { channel: "telegram", peerId };
+      },
+    });
     try {
       expect(
         resolveSessionKey(
@@ -119,6 +156,8 @@ describe("sessions", () => {
       } else {
         process.env.HD_MEMORY_ENABLED = original;
       }
+      setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
     }
   });
 

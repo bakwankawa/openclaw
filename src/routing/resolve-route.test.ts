@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import { resetHdMemoryAdapterCache, setHdMemoryAdapter } from "../extensions/hd/memory-adapter.js";
 import { resolveAgentRoute } from "./resolve-route.js";
 
 describe("resolveAgentRoute", () => {
@@ -30,9 +31,13 @@ describe("resolveAgentRoute", () => {
     expect(route.sessionKey).toBe("agent:main:direct:+15551234567");
   });
 
-  test("defaults Telegram direct chats to per-account-channel-peer isolation when HD memory flag is enabled", () => {
+  test("uses external HD memory adapter scope for Telegram direct chats", () => {
     const original = process.env.HD_MEMORY_ENABLED;
     process.env.HD_MEMORY_ENABLED = "1";
+    setHdMemoryAdapter({
+      resolveDmScope: ({ channel }) =>
+        channel === "telegram" ? "per-account-channel-peer" : "main",
+    });
     try {
       const cfg: OpenClawConfig = {};
       const route = resolveAgentRoute({
@@ -48,6 +53,8 @@ describe("resolveAgentRoute", () => {
       } else {
         process.env.HD_MEMORY_ENABLED = original;
       }
+      setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
     }
   });
 

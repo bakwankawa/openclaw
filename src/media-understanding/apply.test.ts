@@ -567,29 +567,13 @@ describe("applyMediaUnderstanding", () => {
     const { applyMediaUnderstanding } = await loadApply();
     process.env.HD_SESSION_FILES_ENABLED = "1";
     setHdSessionFilesAdapter({
-      parseTabularFile: async () => ({
-        columns: ["name", "score"],
-        rows: [
-          { name: "alice", score: 10 },
-          { name: "bob", score: 8 },
-        ],
-        totalRows: 2,
-        truncated: false,
-      }),
-      normalizeParsedTabular: (parsed) => ({
-        columns: parsed.columns ?? [],
-        rows: parsed.rows ?? [],
-        sheets: parsed.sheets,
-        totalRows: parsed.totalRows,
-        truncated: parsed.truncated ?? false,
-        truncatedRows: parsed.truncatedRows ?? 0,
-        truncatedColumns: parsed.truncatedColumns ?? 0,
-      }),
-      queryParsedTabular: ({ parsed }) => ({
-        rows: parsed.rows.slice(0, 1),
-        total: parsed.rows.length,
-        columns: parsed.columns,
-      }),
+      extractTabularText: async () =>
+        [
+          "Tabular preview (csv)",
+          "Columns: name, score",
+          "Rows: 1/2",
+          "name=alice | score=10",
+        ].join("\n"),
     });
 
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-media-"));

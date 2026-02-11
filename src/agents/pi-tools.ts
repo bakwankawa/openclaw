@@ -5,6 +5,8 @@ import {
   createWriteTool,
   readTool,
 } from "@mariozechner/pi-coding-agent";
+import fs from "node:fs/promises";
+import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ModelAuthMode } from "./model-auth.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
@@ -12,6 +14,7 @@ import type { SandboxContext } from "./sandbox.js";
 import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
+import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
 import { createApplyPatchTool } from "./apply-patch.js";
 import {
@@ -56,6 +59,203 @@ import {
 function isOpenAIProvider(provider?: string) {
   const normalized = provider?.trim().toLowerCase();
   return normalized === "openai" || normalized === "openai-codex";
+}
+
+type SessionScopedUserProfileTarget = {
+  relativePath: string;
+  absolutePath: string;
+};
+
+function resolveSessionScopedUserProfileTarget(params: {
+  sessionKey?: string;
+  workspaceRoot: string;
+}): SessionScopedUserProfileTarget | undefined {
+  const sessionKey = params.sessionKey?.trim();
+  if (!sessionKey || isSubagentSessionKey(sessionKey)) {
+    return undefined;
+  }
+  const parsed = parseAgentSessionKey(sessionKey);
+  if (!parsed) {
+    return undefined;
+  }
+  const rest = parsed.rest.trim().toLowerCase();
+  if (!rest || rest === "main") {
+    return undefined;
+  }
+  const slug = rest.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!slug) {
+    return undefined;
+  }
+  const relativePath = path.join("users", `${slug}.md`).replace(/\\/g, "/");
+  const absolutePath = path.resolve(path.join(params.workspaceRoot, relativePath));
+  return { relativePath, absolutePath };
+}
+
+function remapSessionScopedUserPath(params: {
+  rawPath: string;
+  workspaceRoot: string;
+  target: SessionScopedUserProfileTarget;
+}): string | undefined {
+  const rawPath = params.rawPath.trim();
+  if (!rawPath) {
+    return undefined;
+  }
+  const normalized = rawPath.replace(/\\/g, "/").toLowerCase();
+  if (normalized === "user.md" || normalized === "./user.md") {
+    return params.target.relativePath;
+  }
+  if (!path.isAbsolute(rawPath)) {
+    return undefined;
+  }
+  const resolved = path.resolve(rawPath);
+  const defaultUserPath = path.resolve(path.join(params.workspaceRoot, "USER.md"));
+  if (resolved !== defaultUserPath) {
+    return undefined;
+  }
+  return params.target.absolutePath;
+}
+
+function isExactEditTextMiss(error: unknown): boolean {
+  const message = (() => {
+    if (error instanceof Error) {
+      return error.message;
+    }
+    if (typeof error === "string") {
+      return error;
+    }
+    if (error && typeof error === "object" && "message" in error) {
+      const value = (error as { message?: unknown }).message;
+      return typeof value === "string" ? value : "";
+    }
+    return "";
+  })();
+  return message.includes("Could not find the exact text");
+}
+
+function extractSingleLineProfileFieldPrefix(text: string): string | undefined {
+  if (text.includes("\n") || text.includes("\r")) {
+    return undefined;
+  }
+  const match = text.match(/^\s*-\s\*\*[^*]+:\*\*/) ?? text.match(/^\s*-\s\*\*[^*]+\*\*:/);
+  return match?.[0]?.trimStart();
+}
+
+function resolveWorkspaceRelativePath(params: {
+  workspaceRoot: string;
+  maybePath: string;
+}): string {
+  if (path.isAbsolute(params.maybePath)) {
+    return path.resolve(params.maybePath);
+  }
+  return path.resolve(path.join(params.workspaceRoot, params.maybePath));
+}
+
+async function buildSessionUserProfileEditFallbackArgs(params: {
+  workspaceRoot: string;
+  target: SessionScopedUserProfileTarget;
+  mappedPath: string;
+  args: Record<string, unknown>;
+}): Promise<Record<string, unknown> | undefined> {
+  const oldText = typeof params.args.oldText === "string" ? params.args.oldText : undefined;
+  const newText = typeof params.args.newText === "string" ? params.args.newText : undefined;
+  if (!oldText || !newText) {
+    return undefined;
+  }
+  const oldPrefix = extractSingleLineProfileFieldPrefix(oldText);
+  const newPrefix = extractSingleLineProfileFieldPrefix(newText);
+  if (!oldPrefix || oldPrefix !== newPrefix) {
+    return undefined;
+  }
+
+  const resolvedMappedPath = resolveWorkspaceRelativePath({
+    workspaceRoot: params.workspaceRoot,
+    maybePath: params.mappedPath,
+  });
+  if (resolvedMappedPath !== params.target.absolutePath) {
+    return undefined;
+  }
+
+  let content = "";
+  try {
+    content = await fs.readFile(resolvedMappedPath, "utf8");
+  } catch {
+    return undefined;
+  }
+  const lines = content.split(/\r?\n/);
+  const currentLine = lines.find((line) => line.trimStart().startsWith(oldPrefix));
+  if (!currentLine) {
+    return undefined;
+  }
+
+  return {
+    ...params.args,
+    path: params.mappedPath,
+    oldText: currentLine,
+    newText,
+    old_string: currentLine,
+    new_string: newText,
+  };
+}
+
+function wrapSessionScopedUserProfilePathRouting(
+  tool: AnyAgentTool,
+  params: { workspaceRoot: string; target?: SessionScopedUserProfileTarget },
+): AnyAgentTool {
+  if (!params.target) {
+    return tool;
+  }
+  return {
+    ...tool,
+    execute: async (toolCallId, args, signal, onUpdate) => {
+      const normalized = normalizeToolParams(args);
+      const record =
+        normalized ??
+        (args && typeof args === "object" ? { ...(args as Record<string, unknown>) } : undefined);
+      if (!record) {
+        return tool.execute(toolCallId, args, signal, onUpdate);
+      }
+      const currentPath = typeof record.path === "string" ? record.path : undefined;
+      const mapped = currentPath
+        ? remapSessionScopedUserPath({
+            rawPath: currentPath,
+            workspaceRoot: params.workspaceRoot,
+            target: params.target,
+          })
+        : undefined;
+      if (!mapped) {
+        return tool.execute(toolCallId, normalized ?? args, signal, onUpdate);
+      }
+      const nextArgs: Record<string, unknown> = {
+        ...record,
+        path: mapped,
+      };
+      delete nextArgs.file_path;
+      if (tool.name.trim().toLowerCase() !== "edit") {
+        return tool.execute(toolCallId, nextArgs, signal, onUpdate);
+      }
+      try {
+        return await tool.execute(toolCallId, nextArgs, signal, onUpdate);
+      } catch (error) {
+        if (!params.target || !isExactEditTextMiss(error)) {
+          throw error;
+        }
+        const fallbackArgs = await buildSessionUserProfileEditFallbackArgs({
+          workspaceRoot: params.workspaceRoot,
+          target: params.target,
+          mappedPath: mapped,
+          args: nextArgs,
+        });
+        if (!fallbackArgs) {
+          throw error;
+        }
+        try {
+          return await tool.execute(toolCallId, fallbackArgs, signal, onUpdate);
+        } catch {
+          throw error;
+        }
+      }
+    },
+  };
 }
 
 function isApplyPatchAllowedForModel(params: {
@@ -241,14 +441,28 @@ export function createOpenClawCodingTools(options?: {
       modelId: options?.modelId,
       allowModels: applyPatchConfig?.allowModels,
     });
+  const sessionScopedUserTarget = resolveSessionScopedUserProfileTarget({
+    sessionKey: options?.sessionKey,
+    workspaceRoot,
+  });
 
   const base = (codingTools as unknown as AnyAgentTool[]).flatMap((tool) => {
     if (tool.name === readTool.name) {
       if (sandboxRoot) {
-        return [createSandboxedReadTool(sandboxRoot)];
+        return [
+          wrapSessionScopedUserProfilePathRouting(createSandboxedReadTool(sandboxRoot), {
+            workspaceRoot: sandboxRoot,
+            target: sessionScopedUserTarget,
+          }),
+        ];
       }
       const freshReadTool = createReadTool(workspaceRoot);
-      return [createOpenClawReadTool(freshReadTool)];
+      return [
+        wrapSessionScopedUserProfilePathRouting(createOpenClawReadTool(freshReadTool), {
+          workspaceRoot,
+          target: sessionScopedUserTarget,
+        }),
+      ];
     }
     if (tool.name === "bash" || tool.name === execToolName) {
       return [];
@@ -259,7 +473,13 @@ export function createOpenClawCodingTools(options?: {
       }
       // Wrap with param normalization for Claude Code compatibility
       return [
-        wrapToolParamNormalization(createWriteTool(workspaceRoot), CLAUDE_PARAM_GROUPS.write),
+        wrapSessionScopedUserProfilePathRouting(
+          wrapToolParamNormalization(createWriteTool(workspaceRoot), CLAUDE_PARAM_GROUPS.write),
+          {
+            workspaceRoot,
+            target: sessionScopedUserTarget,
+          },
+        ),
       ];
     }
     if (tool.name === "edit") {
@@ -267,7 +487,15 @@ export function createOpenClawCodingTools(options?: {
         return [];
       }
       // Wrap with param normalization for Claude Code compatibility
-      return [wrapToolParamNormalization(createEditTool(workspaceRoot), CLAUDE_PARAM_GROUPS.edit)];
+      return [
+        wrapSessionScopedUserProfilePathRouting(
+          wrapToolParamNormalization(createEditTool(workspaceRoot), CLAUDE_PARAM_GROUPS.edit),
+          {
+            workspaceRoot,
+            target: sessionScopedUserTarget,
+          },
+        ),
+      ];
     }
     return [tool];
   });
@@ -315,7 +543,16 @@ export function createOpenClawCodingTools(options?: {
     ...base,
     ...(sandboxRoot
       ? allowWorkspaceWrites
-        ? [createSandboxedEditTool(sandboxRoot), createSandboxedWriteTool(sandboxRoot)]
+        ? [
+            wrapSessionScopedUserProfilePathRouting(createSandboxedEditTool(sandboxRoot), {
+              workspaceRoot: sandboxRoot,
+              target: sessionScopedUserTarget,
+            }),
+            wrapSessionScopedUserProfilePathRouting(createSandboxedWriteTool(sandboxRoot), {
+              workspaceRoot: sandboxRoot,
+              target: sessionScopedUserTarget,
+            }),
+          ]
         : []
       : []),
     ...(applyPatchTool ? [applyPatchTool as unknown as AnyAgentTool] : []),

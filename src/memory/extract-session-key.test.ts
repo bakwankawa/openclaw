@@ -78,24 +78,18 @@ describe("memory HD adapter flag", () => {
     }
   });
 
-  it("uses built-in DM isolation fallback when external adapter is unavailable", () => {
+  it("falls back to legacy DM scope + isolation when external adapter is unavailable", () => {
     const original = process.env.HD_MEMORY_ENABLED;
     process.env.HD_MEMORY_ENABLED = "1";
     resetHdMemoryAdapterCache();
     setHdMemoryAdapter(undefined);
     try {
-      expect(resolveHdDmScope({ channel: "telegram" })).toBe("per-account-channel-peer");
-      expect(resolveHdDmScope({ channel: "webchat" })).toBe("per-account-channel-peer");
+      expect(resolveHdDmScope({ channel: "telegram" })).toBe("main");
+      expect(resolveHdDmScope({ channel: "webchat" })).toBe("main");
       expect(resolveHdDmScope({ channel: "discord" })).toBe("main");
-      expect(
-        resolveHdDirectIsolationTarget({
-          surface: "telegram",
-          senderId: "6254545718",
-        }),
-      ).toEqual({
-        channel: "telegram",
-        peerId: "6254545718",
-      });
+      expect(resolveHdDirectIsolationTarget({ surface: "telegram", senderId: "6254545718" })).toBe(
+        undefined,
+      );
     } finally {
       if (original === undefined) {
         delete process.env.HD_MEMORY_ENABLED;

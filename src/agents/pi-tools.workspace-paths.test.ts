@@ -103,6 +103,98 @@ describe("workspace path resolution", () => {
     });
   });
 
+  it("routes USER.md to session-scoped profile for non-main sessions", async () => {
+    await withTempDir("openclaw-ws-", async (workspaceDir) => {
+      const sessionKey = "agent:main:telegram:direct:6254545718";
+      const scopedUserPath = path.join(workspaceDir, "users", "telegram-direct-6254545718.md");
+      await fs.mkdir(path.dirname(scopedUserPath), { recursive: true });
+      await fs.writeFile(path.join(workspaceDir, "USER.md"), "GLOBAL PROFILE", "utf8");
+      await fs.writeFile(scopedUserPath, "SESSION PROFILE", "utf8");
+
+      const tools = createOpenClawCodingTools({ workspaceDir, sessionKey });
+      const readTool = tools.find((tool) => tool.name === "read");
+      const editTool = tools.find((tool) => tool.name === "edit");
+      expect(readTool).toBeDefined();
+      expect(editTool).toBeDefined();
+
+      const readResult = await readTool?.execute("ws-read-user-scoped", { path: "USER.md" });
+      expect(getTextContent(readResult)).toContain("SESSION PROFILE");
+
+      await editTool?.execute("ws-edit-user-scoped", {
+        path: "USER.md",
+        oldText: "SESSION PROFILE",
+        newText: "SESSION PROFILE UPDATED",
+      });
+
+      const [scopedUser, globalUser] = await Promise.all([
+        fs.readFile(scopedUserPath, "utf8"),
+        fs.readFile(path.join(workspaceDir, "USER.md"), "utf8"),
+      ]);
+      expect(scopedUser).toContain("SESSION PROFILE UPDATED");
+      expect(globalUser).toBe("GLOBAL PROFILE");
+    });
+  });
+
+  it("falls back to field-level edit for session USER.md when oldText is stale", async () => {
+    await withTempDir("openclaw-ws-", async (workspaceDir) => {
+      const sessionKey = "agent:main:telegram:direct:6254545718";
+      const scopedUserPath = path.join(workspaceDir, "users", "telegram-direct-6254545718.md");
+      await fs.mkdir(path.dirname(scopedUserPath), { recursive: true });
+      await fs.writeFile(path.join(workspaceDir, "USER.md"), "GLOBAL PROFILE", "utf8");
+      await fs.writeFile(
+        scopedUserPath,
+        [
+          "# USER.md - About This Session User",
+          "",
+          "- **Session:** telegram:direct:6254545718",
+          "- **Name:**",
+          "- **What to call them:**",
+          "- **Pronouns:** _(optional)_",
+          "- **Timezone:**",
+          "- **Notes:**",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+
+      const tools = createOpenClawCodingTools({ workspaceDir, sessionKey });
+      const editTool = tools.find((tool) => tool.name === "edit");
+      expect(editTool).toBeDefined();
+
+      await expect(
+        editTool?.execute("ws-edit-user-fallback", {
+          path: "USER.md",
+          oldText: "- **Notes:** Lahir di Jogja.",
+          newText: "- **Notes:** Lahir di Jogja, bulan Mei.",
+        }),
+      ).resolves.toBeDefined();
+
+      const [scopedUser, globalUser] = await Promise.all([
+        fs.readFile(scopedUserPath, "utf8"),
+        fs.readFile(path.join(workspaceDir, "USER.md"), "utf8"),
+      ]);
+      expect(scopedUser).toContain("- **Notes:** Lahir di Jogja, bulan Mei.");
+      expect(globalUser).toBe("GLOBAL PROFILE");
+    });
+  });
+
+  it("keeps exact-match enforcement for non-session files", async () => {
+    await withTempDir("openclaw-ws-", async (workspaceDir) => {
+      await fs.writeFile(path.join(workspaceDir, "notes.md"), "- **Notes:**\n", "utf8");
+      const tools = createOpenClawCodingTools({ workspaceDir });
+      const editTool = tools.find((tool) => tool.name === "edit");
+      expect(editTool).toBeDefined();
+
+      await expect(
+        editTool?.execute("ws-edit-non-session-file", {
+          path: "notes.md",
+          oldText: "- **Notes:** Lahir di Jogja.",
+          newText: "- **Notes:** Lahir di Jogja, bulan Mei.",
+        }),
+      ).rejects.toThrow("Could not find the exact text");
+    });
+  });
+
   it("defaults exec cwd to workspaceDir when workdir is omitted", async () => {
     await withTempDir("openclaw-ws-", async (workspaceDir) => {
       const tools = createOpenClawCodingTools({ workspaceDir, exec: { host: "gateway" } });

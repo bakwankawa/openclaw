@@ -28,6 +28,12 @@ importers:
       '@clack/prompts':
         specifier: ^1.0.0
         version: 1.0.0
+      '@commitdulubarungopi/hd-memory-extension':
+        specifier: link:../pspsps/packages/hd-memory-extension
+        version: link:../pspsps/packages/hd-memory-extension
+      '@commitdulubarungopi/hd-session-files-extension':
+        specifier: link:../pspsps/packages/hd-session-files-extension
+        version: link:../pspsps/packages/hd-session-files-extension
       '@grammyjs/runner':
         specifier: ^2.0.3
         version: 2.0.3(grammy@1.40.0)

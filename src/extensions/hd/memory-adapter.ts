@@ -81,68 +81,16 @@ function getActiveAdapter(): HdMemoryAdapter | undefined {
   return adapterOverride ?? externalAdapter;
 }
 
-function resolveLegacyDmScope(): HdDmScope {
+function resolveFallbackDmScope(channel?: string): HdDmScope {
+  void channel;
   return "main";
 }
 
-function resolveBuiltInDmScope(channel?: string): HdDmScope {
-  const normalized = channel?.trim().toLowerCase();
-  if (normalized === "telegram" || normalized === "webchat") {
-    return "per-account-channel-peer";
-  }
-  return "main";
-}
-
-function resolveLegacyDirectIsolationTarget(): HdIsolationTarget | undefined {
-  return undefined;
-}
-
-function resolveBuiltInDirectIsolationTarget(
+function resolveFallbackDirectIsolationTarget(
   input: HdIsolationInput,
 ): HdIsolationTarget | undefined {
-  const channel = resolveBuiltInDirectIsolationChannel(input);
-  if (!channel) {
-    return undefined;
-  }
-  const peerId = resolveBuiltInDirectIsolationPeerId(input, channel);
-  if (!peerId) {
-    return undefined;
-  }
-  return { channel, peerId };
-}
-
-function resolveBuiltInDirectIsolationChannel(
-  input: HdIsolationInput,
-): "telegram" | "webchat" | undefined {
-  const surface = input.surface?.trim().toLowerCase();
-  const provider = input.provider?.trim().toLowerCase();
-  const from = input.from?.trim().toLowerCase() ?? "";
-  const fromPrefix = from.split(":")[0]?.trim();
-  const channel = surface || provider || fromPrefix;
-  if (channel === "telegram" || channel === "webchat") {
-    return channel;
-  }
+  void input;
   return undefined;
-}
-
-function resolveBuiltInDirectIsolationPeerId(
-  input: HdIsolationInput,
-  channel: "telegram" | "webchat",
-): string | undefined {
-  const sender = (input.senderId ?? "").trim().toLowerCase();
-  if (sender && sender !== "unknown") {
-    return sender;
-  }
-  const from = (input.from ?? "").trim().toLowerCase();
-  if (!from || from === "unknown") {
-    return undefined;
-  }
-  const prefix = `${channel}:`;
-  if (from.startsWith(prefix)) {
-    const peer = from.slice(prefix.length).trim();
-    return peer && peer !== "unknown" ? peer : undefined;
-  }
-  return from;
 }
 
 export function resolveHdDmScope(params: { configured?: HdDmScope; channel?: string }): HdDmScope {
@@ -150,28 +98,28 @@ export function resolveHdDmScope(params: { configured?: HdDmScope; channel?: str
     return params.configured;
   }
   if (!shouldUseHdMemory()) {
-    return resolveLegacyDmScope();
+    return resolveFallbackDmScope(params.channel);
   }
   loadExternalHdMemoryAdapter();
   const custom = getActiveAdapter()?.resolveDmScope?.(params);
   if (custom) {
     return custom;
   }
-  return resolveBuiltInDmScope(params.channel);
+  return resolveFallbackDmScope(params.channel);
 }
 
 export function resolveHdDirectIsolationTarget(
   input: HdIsolationInput,
 ): HdIsolationTarget | undefined {
   if (!shouldUseHdMemory()) {
-    return resolveLegacyDirectIsolationTarget();
+    return resolveFallbackDirectIsolationTarget(input);
   }
   loadExternalHdMemoryAdapter();
   const custom = getActiveAdapter()?.resolveDirectIsolationTarget?.(input);
   if (custom) {
     return custom;
   }
-  return resolveBuiltInDirectIsolationTarget(input);
+  return resolveFallbackDirectIsolationTarget(input);
 }
 
 export function buildHdSessionFilter(params: {
