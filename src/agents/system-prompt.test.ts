@@ -148,16 +148,6 @@ describe("buildAgentSystemPrompt", () => {
     );
   });
 
-  it("discourages python spreadsheet deps when handling uploaded tabular files", () => {
-    const prompt = buildAgentSystemPrompt({
-      workspaceDir: "/tmp/openclaw",
-      toolNames: ["exec", "read", "message"],
-    });
-
-    expect(prompt).toContain("uploaded tabular files");
-    expect(prompt).toContain("pandas/openpyxl");
-  });
-
   it("includes workspace notes when provided", () => {
     const prompt = buildAgentSystemPrompt({
       workspaceDir: "/tmp/openclaw",

@@ -183,7 +183,7 @@ export function buildBootstrapContextFiles(
       );
     }
     result.push({
-      path: file.contextPath ?? file.name,
+      path: file.name,
       content: trimmed.content,
     });
   }

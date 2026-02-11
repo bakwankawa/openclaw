@@ -1,6 +1,14 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   buildHdSessionFilter,
+  loadHdMemoryAdapter,
+  resetHdMemoryAdapterCache,
+  resolveHdDirectIsolationTarget,
+  resolveHdDmScope,
   setHdMemoryAdapter,
   shouldUseHdMemory,
 } from "../extensions/hd/memory-adapter.js";
@@ -41,6 +49,7 @@ describe("memory HD adapter flag", () => {
         process.env.HD_MEMORY_ENABLED = original;
       }
       setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
     }
   });
 
@@ -60,11 +69,109 @@ describe("memory HD adapter flag", () => {
       });
     } finally {
       setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
       if (original === undefined) {
         delete process.env.HD_MEMORY_ENABLED;
       } else {
         process.env.HD_MEMORY_ENABLED = original;
       }
     }
+  });
+
+  it("uses legacy DM scope fallback when external adapter is unavailable", () => {
+    expect(resolveHdDmScope({ channel: "telegram" })).toBe("main");
+    expect(resolveHdDmScope({ channel: "webchat" })).toBe("main");
+    expect(resolveHdDmScope({ channel: "discord" })).toBe("main");
+  });
+
+  it("returns no direct isolation target when external adapter is unavailable", () => {
+    expect(
+      resolveHdDirectIsolationTarget({
+        surface: "telegram",
+        senderId: "6254545718",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("uses custom DM scope + direct isolation target when adapter is registered", () => {
+    const original = process.env.HD_MEMORY_ENABLED;
+    process.env.HD_MEMORY_ENABLED = "1";
+    setHdMemoryAdapter({
+      resolveDmScope: ({ configured, channel }) =>
+        configured ?? (channel === "telegram" ? "per-account-channel-peer" : "main"),
+      resolveDirectIsolationTarget: ({ surface, senderId }) => {
+        if (surface?.toLowerCase() !== "telegram" || !senderId) {
+          return undefined;
+        }
+        return { channel: "telegram", peerId: senderId.toLowerCase() };
+      },
+    });
+    try {
+      expect(resolveHdDmScope({ channel: "telegram" })).toBe("per-account-channel-peer");
+      expect(
+        resolveHdDirectIsolationTarget({
+          surface: "telegram",
+          senderId: "6254545718",
+        }),
+      ).toEqual({
+        channel: "telegram",
+        peerId: "6254545718",
+      });
+    } finally {
+      setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
+      if (original === undefined) {
+        delete process.env.HD_MEMORY_ENABLED;
+      } else {
+        process.env.HD_MEMORY_ENABLED = original;
+      }
+    }
+  });
+
+  it("keeps legacy DM scope + isolation when HD memory flag is disabled", () => {
+    const original = process.env.HD_MEMORY_ENABLED;
+    process.env.HD_MEMORY_ENABLED = "0";
+    setHdMemoryAdapter({
+      resolveDmScope: () => "per-account-channel-peer",
+      resolveDirectIsolationTarget: () => ({ channel: "telegram", peerId: "forced" }),
+    });
+    try {
+      expect(resolveHdDmScope({ channel: "telegram" })).toBe("main");
+      expect(
+        resolveHdDirectIsolationTarget({
+          surface: "telegram",
+          senderId: "6254545718",
+        }),
+      ).toBeUndefined();
+    } finally {
+      setHdMemoryAdapter(undefined);
+      resetHdMemoryAdapterCache();
+      if (original === undefined) {
+        delete process.env.HD_MEMORY_ENABLED;
+      } else {
+        process.env.HD_MEMORY_ENABLED = original;
+      }
+    }
+  });
+
+  it("returns undefined when external HD memory module import fails", async () => {
+    const adapter = await loadHdMemoryAdapter("@commitdulubarungopi/non-existent");
+    expect(adapter).toBeUndefined();
+  });
+
+  it("loads external HD memory module when import succeeds", async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "hd-memory-adapter-"));
+    const modulePath = path.join(dir, "adapter.mjs");
+    await fs.writeFile(
+      modulePath,
+      "export const buildSessionFilter = ({ sessionKey }) => ({ sql: ' AND custom = ?', params: [sessionKey ?? ''] });\n",
+      "utf-8",
+    );
+
+    const adapter = await loadHdMemoryAdapter(pathToFileURL(modulePath).href);
+    expect(adapter?.buildSessionFilter?.({ sessionKey: "k1" })).toEqual({
+      sql: " AND custom = ?",
+      params: ["k1"],
+    });
   });
 });

@@ -1,5 +1,6 @@
 import type { MsgContext } from "../../auto-reply/templating.js";
 import type { SessionScope } from "./types.js";
+import { resolveHdDirectIsolationTarget } from "../../extensions/hd/memory-adapter.js";
 import {
   buildAgentPeerSessionKey,
   buildAgentMainSessionKey,
@@ -50,53 +51,25 @@ export function resolveSessionKey(scope: SessionScope, ctx: MsgContext, mainKey?
   });
   const isGroup = raw.includes(":group:") || raw.includes(":channel:");
   if (!isGroup) {
-    const isolatedChannel = resolveDirectIsolationChannel(ctx);
-    if (isolatedChannel) {
-      const isolatedPeerId = resolveDirectIsolationPeerId(ctx, isolatedChannel);
-      if (isolatedPeerId) {
-        return buildAgentPeerSessionKey({
-          agentId: DEFAULT_AGENT_ID,
-          mainKey: canonicalMainKey,
-          channel: isolatedChannel,
-          peerKind: "direct",
-          peerId: isolatedPeerId,
-          dmScope: "per-channel-peer",
-        });
-      }
+    const isolated = resolveHdDirectIsolationTarget({
+      surface: ctx.Surface,
+      provider: ctx.Provider,
+      from: ctx.From,
+      senderId: ctx.SenderId,
+    });
+    if (isolated) {
+      return buildAgentPeerSessionKey({
+        agentId: DEFAULT_AGENT_ID,
+        mainKey: canonicalMainKey,
+        channel: isolated.channel,
+        peerKind: "direct",
+        peerId: isolated.peerId,
+        dmScope: "per-channel-peer",
+      });
     }
     return canonical;
   }
   return `agent:${DEFAULT_AGENT_ID}:${raw}`;
-}
-
-function resolveDirectIsolationChannel(ctx: MsgContext): string | undefined {
-  const surface = ctx.Surface?.trim().toLowerCase();
-  const provider = ctx.Provider?.trim().toLowerCase();
-  const from = ctx.From?.trim().toLowerCase() ?? "";
-  const fromPrefix = from.split(":")[0]?.trim();
-  const channel = surface || provider || fromPrefix;
-  if (channel === "telegram" || channel === "webchat") {
-    return channel;
-  }
-  return undefined;
-}
-
-function resolveDirectIsolationPeerId(ctx: MsgContext, channel: string): string | undefined {
-  const sender = (ctx.SenderId ?? "").trim().toLowerCase();
-  if (sender && sender !== "unknown") {
-    return sender;
-  }
-
-  const from = (ctx.From ?? "").trim().toLowerCase();
-  if (!from || from === "unknown") {
-    return undefined;
-  }
-  const prefix = `${channel}:`;
-  if (from.startsWith(prefix)) {
-    const peer = from.slice(prefix.length).trim();
-    return peer && peer !== "unknown" ? peer : undefined;
-  }
-  return from;
 }
 
 function remapExplicitMainSessionToIsolatedPeer(params: {
@@ -116,21 +89,22 @@ function remapExplicitMainSessionToIsolatedPeer(params: {
     return undefined;
   }
 
-  const channel = resolveDirectIsolationChannel(params.ctx);
-  if (!channel) {
-    return undefined;
-  }
-  const peerId = resolveDirectIsolationPeerId(params.ctx, channel);
-  if (!peerId) {
+  const isolated = resolveHdDirectIsolationTarget({
+    surface: params.ctx.Surface,
+    provider: params.ctx.Provider,
+    from: params.ctx.From,
+    senderId: params.ctx.SenderId,
+  });
+  if (!isolated) {
     return undefined;
   }
 
   return buildAgentPeerSessionKey({
     agentId: parsed.agentId || DEFAULT_AGENT_ID,
     mainKey: params.mainKey,
-    channel,
+    channel: isolated.channel,
     peerKind: "direct",
-    peerId,
+    peerId: isolated.peerId,
     dmScope: "per-channel-peer",
   });
 }

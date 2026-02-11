@@ -17,28 +17,6 @@ describe("resolveAgentRoute", () => {
     expect(route.matchedBy).toBe("default");
   });
 
-  test("defaults Telegram direct chats to per-account-channel-peer isolation", () => {
-    const cfg: OpenClawConfig = {};
-    const route = resolveAgentRoute({
-      cfg,
-      channel: "telegram",
-      accountId: null,
-      peer: { kind: "direct", id: "12345" },
-    });
-    expect(route.sessionKey).toBe("agent:main:telegram:default:direct:12345");
-  });
-
-  test("defaults WebChat direct chats to per-account-channel-peer isolation", () => {
-    const cfg: OpenClawConfig = {};
-    const route = resolveAgentRoute({
-      cfg,
-      channel: "webchat",
-      accountId: null,
-      peer: { kind: "direct", id: "user-a" },
-    });
-    expect(route.sessionKey).toBe("agent:main:webchat:default:direct:user-a");
-  });
-
   test("dmScope=per-peer isolates DM sessions by sender id", () => {
     const cfg: OpenClawConfig = {
       session: { dmScope: "per-peer" },

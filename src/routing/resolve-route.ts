@@ -2,6 +2,7 @@ import type { ChatType } from "../channels/chat-type.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { normalizeChatType } from "../channels/chat-type.js";
+import { resolveHdDmScope } from "../extensions/hd/memory-adapter.js";
 import { listBindings } from "./bindings.js";
 import {
   buildAgentMainSessionKey,
@@ -267,14 +268,5 @@ function resolveDmScope(
   cfg: OpenClawConfig,
   channel: string,
 ): "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer" {
-  const configured = cfg.session?.dmScope;
-  if (configured) {
-    return configured;
-  }
-  // Keep legacy default for most channels, but isolate direct sessions for
-  // Telegram and WebChat so different users do not share the same "main" memory.
-  if (channel === "telegram" || channel === "webchat") {
-    return "per-account-channel-peer";
-  }
-  return "main";
+  return resolveHdDmScope({ configured: cfg.session?.dmScope, channel });
 }

@@ -104,23 +104,6 @@ pnpm gateway:watch
 
 Note: `pnpm openclaw ...` runs TypeScript directly (via `tsx`). `pnpm build` produces `dist/` for running via Node / the packaged `openclaw` binary.
 
-## HD extension migration flags (fork operation)
-
-For staged migration to HD custom extensions, run the gateway with feature flags:
-
-```bash
-lsof -ti:18789 | xargs kill -9 2>&1 || true && sleep 1 && HD_SESSION_FILES_ENABLED=1 HD_MEMORY_ENABLED=0 pnpm openclaw gateway run
-```
-
-Fast rollback:
-
-```bash
-lsof -ti:18789 | xargs kill -9 2>&1 || true && sleep 1 && HD_SESSION_FILES_ENABLED=0 HD_MEMORY_ENABLED=0 pnpm openclaw gateway run
-```
-
-Operational runbook: `docs/gateway/hd-session-files-cutover.md`
-Go-live checklist: `docs/ops/hd-wave1-wave2-go-live-checklist.md`
-
 ## Security defaults (DM access)
 
 OpenClaw connects to real messaging surfaces. Treat inbound DMs as **untrusted input**.
