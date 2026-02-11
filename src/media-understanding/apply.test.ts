@@ -5,6 +5,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MsgContext } from "../auto-reply/templating.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveApiKeyForProvider } from "../agents/model-auth.js";
+import {
+  resetHdSessionFilesAdapterCache,
+  setHdSessionFilesAdapter,
+} from "../extensions/hd/session-files-adapter.js";
 import { fetchRemoteMedia } from "../media/fetch.js";
 
 vi.mock("../agents/model-auth.js", () => ({
@@ -38,6 +42,9 @@ describe("applyMediaUnderstanding", () => {
   const mockedFetchRemoteMedia = vi.mocked(fetchRemoteMedia);
 
   beforeEach(() => {
+    delete process.env.HD_SESSION_FILES_ENABLED;
+    setHdSessionFilesAdapter(undefined);
+    resetHdSessionFilesAdapterCache();
     mockedResolveApiKey.mockClear();
     mockedFetchRemoteMedia.mockReset();
     mockedFetchRemoteMedia.mockResolvedValue({
@@ -554,6 +561,62 @@ describe("applyMediaUnderstanding", () => {
     expect(result.appliedFile).toBe(true);
     expect(ctx.Body).toContain('<file name="data.bin" mime="text/csv">');
     expect(ctx.Body).toContain('"a","b"\t"c"');
+  });
+
+  it("routes tabular file previews through HD adapter when flag is enabled", async () => {
+    const { applyMediaUnderstanding } = await loadApply();
+    process.env.HD_SESSION_FILES_ENABLED = "1";
+    setHdSessionFilesAdapter({
+      parseTabularFile: async () => ({
+        columns: ["name", "score"],
+        rows: [
+          { name: "alice", score: 10 },
+          { name: "bob", score: 8 },
+        ],
+        totalRows: 2,
+        truncated: false,
+      }),
+      normalizeParsedTabular: (parsed) => ({
+        columns: parsed.columns ?? [],
+        rows: parsed.rows ?? [],
+        sheets: parsed.sheets,
+        totalRows: parsed.totalRows,
+        truncated: parsed.truncated ?? false,
+        truncatedRows: parsed.truncatedRows ?? 0,
+        truncatedColumns: parsed.truncatedColumns ?? 0,
+      }),
+      queryParsedTabular: ({ parsed }) => ({
+        rows: parsed.rows.slice(0, 1),
+        total: parsed.rows.length,
+        columns: parsed.columns,
+      }),
+    });
+
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-media-"));
+    const csvPath = path.join(dir, "metrics.csv");
+    await fs.writeFile(csvPath, "name,score\nalice,10\nbob,8\n");
+
+    const ctx: MsgContext = {
+      Body: "<media:file>",
+      MediaPath: csvPath,
+      MediaType: "text/csv",
+    };
+    const cfg: OpenClawConfig = {
+      tools: {
+        media: {
+          audio: { enabled: false },
+          image: { enabled: false },
+          video: { enabled: false },
+        },
+      },
+    };
+
+    const result = await applyMediaUnderstanding({ ctx, cfg });
+    expect(result.appliedFile).toBe(true);
+    expect(ctx.Body).toContain('<file name="metrics.csv" mime="text/csv">');
+    expect(ctx.Body).toContain("Tabular preview (csv)");
+    expect(ctx.Body).toContain("Rows: 1/2");
+    expect(ctx.Body).toContain("name=alice | score=10");
   });
 
   it("infers TSV when tabs are present without commas", async () => {

@@ -1,3 +1,4 @@
+import { extractHdTabularText } from "../extensions/hd/session-files-adapter.js";
 import { fetchWithSsrFGuard } from "../infra/net/fetch-guard.js";
 import { logWarn } from "../logger.js";
 
@@ -339,6 +340,16 @@ export async function extractFileContentFromSource(params: {
   }
   if (!limits.allowedMimes.has(mimeType)) {
     throw new Error(`Unsupported file MIME type: ${mimeType}`);
+  }
+
+  const hdTabularText = await extractHdTabularText({
+    mimeType,
+    filename,
+    buffer,
+    maxChars: limits.maxChars,
+  });
+  if (hdTabularText !== undefined) {
+    return { filename, text: hdTabularText };
   }
 
   if (mimeType === "application/pdf") {
