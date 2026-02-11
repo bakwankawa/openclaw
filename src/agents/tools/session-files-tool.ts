@@ -4,6 +4,8 @@ import type { CsvQueryFilter } from "../../sessions/files/types.js";
 import type { AnyAgentTool } from "./common.js";
 import { resolveStorePath } from "../../config/sessions/paths.js";
 import { loadSessionStore } from "../../config/sessions/store.js";
+import { shouldUseHdSessionFiles } from "../../extensions/hd/session-files-adapter.js";
+import { getHdSessionFilesRuntime } from "../../extensions/hd/session-files-runtime.js";
 import { buildAgentMainSessionKey, DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { queryCsv } from "../../sessions/files/csv-query.js";
 import { searchText } from "../../sessions/files/pdf-search.js";
@@ -298,7 +300,10 @@ export function createSessionFilesQueryCsvTool(options: {
       const selectColumnsRaw = params.selectColumns;
 
       try {
-        const parsed = await getParsedCsv({ sessionId, agentId, fileId });
+        const runtime = shouldUseHdSessionFiles() ? getHdSessionFilesRuntime() : null;
+        const parsed = runtime
+          ? await runtime.getParsedCsv({ sessionId, agentId, fileId })
+          : await getParsedCsv({ sessionId, agentId, fileId });
         let filter: CsvQueryFilter | undefined;
         if (filterColumn && filterOperator && filterValueRaw !== undefined) {
           filter = {
@@ -375,7 +380,10 @@ export function createSessionFilesQueryTabularTool(options: {
       const selectColumnsRaw = params.selectColumns;
 
       try {
-        const parsed = await getParsedTabular({ sessionId, agentId, fileId });
+        const runtime = shouldUseHdSessionFiles() ? getHdSessionFilesRuntime() : null;
+        const parsed = runtime
+          ? await runtime.getParsedTabular({ sessionId, agentId, fileId })
+          : await getParsedTabular({ sessionId, agentId, fileId });
         let filter: CsvQueryFilter | undefined;
         if (filterColumn && filterOperator && filterValueRaw !== undefined) {
           filter = {

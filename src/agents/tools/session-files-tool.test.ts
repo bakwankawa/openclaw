@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import * as hdRuntime from "../../extensions/hd/session-files-runtime.js";
 import * as storage from "../../sessions/files/storage.js";
 import {
   createSessionFilesListTool,
@@ -8,10 +9,14 @@ import {
 } from "./session-files-tool.js";
 
 vi.mock("../../sessions/files/storage.js");
+vi.mock("../../extensions/hd/session-files-runtime.js", () => ({
+  getHdSessionFilesRuntime: vi.fn(() => null),
+}));
 
 describe("session_files_list tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.HD_SESSION_FILES_ENABLED;
   });
 
   it("lists files in session", async () => {
@@ -218,5 +223,40 @@ describe("session_files_query_tabular tool", () => {
     expect(json.rows).toHaveLength(1);
     expect(json.rows[0].name).toBe("Product B");
     expect(json.columns).toEqual(["name", "sales", "__sheet"]);
+  });
+
+  it("routes tabular query through HD runtime when flag enabled", async () => {
+    process.env.HD_SESSION_FILES_ENABLED = "1";
+    vi.spyOn(storage, "getParsedTabular").mockResolvedValue({
+      columns: [],
+      rows: [],
+    });
+    vi.mocked(hdRuntime.getHdSessionFilesRuntime).mockReturnValue({
+      getParsedCsv: vi.fn(async () => ({ columns: [], rows: [] })),
+      getParsedTabular: vi.fn(async () => ({
+        columns: ["name", "score"],
+        rows: [{ name: "alpha", score: 10 }],
+      })),
+    });
+
+    const tool = createSessionFilesQueryTabularTool({
+      config: {},
+      agentSessionKey: "agent:main:main",
+    });
+    expect(tool).toBeTruthy();
+
+    const result = await tool!.execute("call-1", {
+      sessionId: "test-session",
+      fileId: "file-1",
+      filterColumn: "name",
+      filterOperator: "eq",
+      filterValue: "alpha",
+    });
+
+    expect(storage.getParsedTabular).not.toHaveBeenCalled();
+    const content = result.content[0];
+    expect(content.type).toBe("text");
+    const json = JSON.parse(content.text);
+    expect(json.rows).toEqual([{ name: "alpha", score: 10 }]);
   });
 });
