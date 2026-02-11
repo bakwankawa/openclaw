@@ -17,7 +17,7 @@ import type {
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
-import { shouldUseHdMemory } from "../extensions/hd/memory-adapter.js";
+import { buildHdSessionFilter, shouldUseHdMemory } from "../extensions/hd/memory-adapter.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveUserPath } from "../utils.js";
@@ -293,13 +293,13 @@ export class MemoryIndexManager implements MemorySearchManager {
     );
 
     const keywordResults = hybrid.enabled
-      ? await this.searchKeyword(cleaned, candidates).catch(() => [])
+      ? await this.searchKeyword(cleaned, candidates, opts?.sessionKey).catch(() => [])
       : [];
 
     const queryVec = await this.embedQueryWithTimeout(cleaned);
     const hasVector = queryVec.some((v) => v !== 0);
     const vectorResults = hasVector
-      ? await this.searchVector(queryVec, candidates).catch(() => [])
+      ? await this.searchVector(queryVec, candidates, opts?.sessionKey).catch(() => [])
       : [];
 
     if (!hybrid.enabled) {
@@ -319,7 +319,10 @@ export class MemoryIndexManager implements MemorySearchManager {
   private async searchVector(
     queryVec: number[],
     limit: number,
+    sessionKey?: string,
   ): Promise<Array<MemorySearchResult & { id: string }>> {
+    const sessionFilterVec = buildHdSessionFilter({ sessionKey, tableAlias: "c" });
+    const sessionFilterChunks = buildHdSessionFilter({ sessionKey });
     const results = await searchVector({
       db: this.db,
       vectorTable: VECTOR_TABLE,
@@ -330,6 +333,8 @@ export class MemoryIndexManager implements MemorySearchManager {
       ensureVectorReady: async (dimensions) => await this.ensureVectorReady(dimensions),
       sourceFilterVec: this.buildSourceFilter("c"),
       sourceFilterChunks: this.buildSourceFilter(),
+      sessionFilterVec,
+      sessionFilterChunks,
     });
     return results.map((entry) => entry as MemorySearchResult & { id: string });
   }
@@ -341,11 +346,13 @@ export class MemoryIndexManager implements MemorySearchManager {
   private async searchKeyword(
     query: string,
     limit: number,
+    sessionKey?: string,
   ): Promise<Array<MemorySearchResult & { id: string; textScore: number }>> {
     if (!this.fts.enabled || !this.fts.available) {
       return [];
     }
     const sourceFilter = this.buildSourceFilter();
+    const sessionFilter = buildHdSessionFilter({ sessionKey });
     const results = await searchKeyword({
       db: this.db,
       ftsTable: FTS_TABLE,
@@ -354,6 +361,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       limit,
       snippetMaxChars: SNIPPET_MAX_CHARS,
       sourceFilter,
+      sessionFilter,
       buildFtsQuery: (raw) => this.buildFtsQuery(raw),
       bm25RankToScore,
     });
