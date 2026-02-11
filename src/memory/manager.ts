@@ -17,6 +17,7 @@ import type {
 import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
+import { shouldUseHdMemory } from "../extensions/hd/memory-adapter.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveUserPath } from "../utils.js";
@@ -109,6 +110,8 @@ const INDEX_CACHE = new Map<string, MemoryIndexManager>();
 
 const vectorToBlob = (embedding: number[]): Buffer =>
   Buffer.from(new Float32Array(embedding).buffer);
+
+export { shouldUseHdMemory };
 
 export class MemoryIndexManager implements MemorySearchManager {
   private readonly cacheKey: string;
