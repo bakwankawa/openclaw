@@ -304,7 +304,7 @@ export function createSessionFilesQueryCsvTool(options: {
           filter = {
             column: filterColumn,
             operator: filterOperator,
-            value: typeof filterValueRaw === "number" ? filterValueRaw : filterValueRaw,
+            value: filterValueRaw,
           };
         }
         const selectColumns =
@@ -381,7 +381,7 @@ export function createSessionFilesQueryTabularTool(options: {
           filter = {
             column: filterColumn,
             operator: filterOperator,
-            value: typeof filterValueRaw === "number" ? filterValueRaw : filterValueRaw,
+            value: filterValueRaw,
           };
         }
         const selectColumns =

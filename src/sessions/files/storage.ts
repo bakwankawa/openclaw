@@ -264,6 +264,9 @@ export async function getParsedTabular(params: {
     rows: parsed.rows ?? [],
     sheets: parsed.sheets,
     totalRows: parsed.totalRows,
+    truncated: parsed.truncated ?? false,
+    truncatedRows: parsed.truncatedRows ?? 0,
+    truncatedColumns: parsed.truncatedColumns ?? 0,
   };
 }
 
