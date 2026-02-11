@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveRequiredHomeDir } from "../infra/home-dir.js";
 import { runCommandWithTimeout } from "../process/exec.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
+import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import { resolveUserPath } from "../utils.js";
 import { resolveWorkspaceTemplateDir } from "./workspace-templates.js";
 
@@ -299,7 +300,14 @@ export function filterBootstrapFilesForSession(
   sessionKey?: string,
 ): WorkspaceBootstrapFile[] {
   if (!sessionKey || !isSubagentSessionKey(sessionKey)) {
-    return files;
+    const parsed = parseAgentSessionKey(sessionKey);
+    if (!parsed) {
+      return files;
+    }
+    if (parsed.rest.toLowerCase() === "main") {
+      return files;
+    }
+    return files.filter((file) => file.name !== DEFAULT_USER_FILENAME);
   }
   return files.filter((file) => SUBAGENT_BOOTSTRAP_ALLOWLIST.has(file.name));
 }

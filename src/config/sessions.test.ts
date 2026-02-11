@@ -77,6 +77,51 @@ describe("sessions", () => {
     );
   });
 
+  it("isolates direct Telegram chats per sender when HD memory flag is enabled", () => {
+    const original = process.env.HD_MEMORY_ENABLED;
+    process.env.HD_MEMORY_ENABLED = "1";
+    try {
+      expect(
+        resolveSessionKey("per-sender", { From: "telegram:12345", Provider: "telegram" }, "main"),
+      ).toBe("agent:main:telegram:direct:12345");
+      expect(
+        resolveSessionKey("per-sender", { From: "telegram:99999", Provider: "telegram" }, "main"),
+      ).toBe("agent:main:telegram:direct:99999");
+    } finally {
+      if (original === undefined) {
+        delete process.env.HD_MEMORY_ENABLED;
+      } else {
+        process.env.HD_MEMORY_ENABLED = original;
+      }
+    }
+  });
+
+  it("remaps explicit main session to per-sender key for Telegram when HD memory flag is enabled", () => {
+    const original = process.env.HD_MEMORY_ENABLED;
+    process.env.HD_MEMORY_ENABLED = "1";
+    try {
+      expect(
+        resolveSessionKey(
+          "per-sender",
+          {
+            SessionKey: "agent:main:main",
+            Provider: "telegram",
+            Surface: "telegram",
+            SenderId: "6254545718",
+            From: "telegram:6254545718",
+          },
+          "main",
+        ),
+      ).toBe("agent:main:telegram:direct:6254545718");
+    } finally {
+      if (original === undefined) {
+        delete process.env.HD_MEMORY_ENABLED;
+      } else {
+        process.env.HD_MEMORY_ENABLED = original;
+      }
+    }
+  });
+
   it("uses custom main key when provided", () => {
     expect(resolveSessionKey("per-sender", { From: "+1555" }, "primary")).toBe(
       "agent:main:primary",

@@ -30,6 +30,27 @@ describe("resolveAgentRoute", () => {
     expect(route.sessionKey).toBe("agent:main:direct:+15551234567");
   });
 
+  test("defaults Telegram direct chats to per-account-channel-peer isolation when HD memory flag is enabled", () => {
+    const original = process.env.HD_MEMORY_ENABLED;
+    process.env.HD_MEMORY_ENABLED = "1";
+    try {
+      const cfg: OpenClawConfig = {};
+      const route = resolveAgentRoute({
+        cfg,
+        channel: "telegram",
+        accountId: null,
+        peer: { kind: "direct", id: "12345" },
+      });
+      expect(route.sessionKey).toBe("agent:main:telegram:default:direct:12345");
+    } finally {
+      if (original === undefined) {
+        delete process.env.HD_MEMORY_ENABLED;
+      } else {
+        process.env.HD_MEMORY_ENABLED = original;
+      }
+    }
+  });
+
   test("dmScope=per-channel-peer isolates DM sessions per channel and sender", () => {
     const cfg: OpenClawConfig = {
       session: { dmScope: "per-channel-peer" },
