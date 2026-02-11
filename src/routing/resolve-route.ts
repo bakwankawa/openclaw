@@ -185,7 +185,7 @@ export function resolveAgentRoute(input: ResolveAgentRouteInput): ResolvedAgentR
     return matchesAccountId(binding.match?.accountId, accountId);
   });
 
-  const dmScope = input.cfg.session?.dmScope ?? "main";
+  const dmScope = resolveDmScope(input.cfg, channel);
   const identityLinks = input.cfg.session?.identityLinks;
 
   const choose = (agentId: string, matchedBy: ResolvedAgentRoute["matchedBy"]) => {
@@ -261,4 +261,20 @@ export function resolveAgentRoute(input: ResolveAgentRouteInput): ResolvedAgentR
   }
 
   return choose(resolveDefaultAgentId(input.cfg), "default");
+}
+
+function resolveDmScope(
+  cfg: OpenClawConfig,
+  channel: string,
+): "main" | "per-peer" | "per-channel-peer" | "per-account-channel-peer" {
+  const configured = cfg.session?.dmScope;
+  if (configured) {
+    return configured;
+  }
+  // Keep legacy default for most channels, but isolate direct sessions for
+  // Telegram and WebChat so different users do not share the same "main" memory.
+  if (channel === "telegram" || channel === "webchat") {
+    return "per-account-channel-peer";
+  }
+  return "main";
 }

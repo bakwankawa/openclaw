@@ -63,7 +63,7 @@ describe("sessions", () => {
     ).toBe("discord:friends-of-openclaw#general");
   });
 
-  it("collapses direct chats to main by default", () => {
+  it("collapses generic direct chats to main by default", () => {
     expect(resolveSessionKey("per-sender", { From: "+1555" })).toBe("agent:main:main");
   });
 
@@ -75,6 +75,56 @@ describe("sessions", () => {
     expect(resolveSessionKey("per-sender", { From: "whatsapp:+1555" }, "main")).toBe(
       "agent:main:main",
     );
+  });
+
+  it("isolates direct Telegram chats per sender", () => {
+    expect(
+      resolveSessionKey("per-sender", { From: "telegram:12345", Provider: "telegram" }, "main"),
+    ).toBe("agent:main:telegram:direct:12345");
+    expect(
+      resolveSessionKey("per-sender", { From: "telegram:99999", Provider: "telegram" }, "main"),
+    ).toBe("agent:main:telegram:direct:99999");
+  });
+
+  it("isolates direct WebChat chats per sender", () => {
+    expect(
+      resolveSessionKey("per-sender", { From: "webchat:user-a", Surface: "webchat" }, "main"),
+    ).toBe("agent:main:webchat:direct:user-a");
+    expect(
+      resolveSessionKey("per-sender", { From: "webchat:user-b", Surface: "webchat" }, "main"),
+    ).toBe("agent:main:webchat:direct:user-b");
+  });
+
+  it("remaps explicit main session to per-sender key for Telegram when sender is known", () => {
+    expect(
+      resolveSessionKey(
+        "per-sender",
+        {
+          SessionKey: "agent:main:main",
+          Provider: "telegram",
+          Surface: "telegram",
+          SenderId: "6254545718",
+          From: "telegram:6254545718",
+        },
+        "main",
+      ),
+    ).toBe("agent:main:telegram:direct:6254545718");
+  });
+
+  it("remaps explicit main session to per-sender key for WebChat when sender is known", () => {
+    expect(
+      resolveSessionKey(
+        "per-sender",
+        {
+          SessionKey: "agent:main:main",
+          Provider: "webchat",
+          Surface: "webchat",
+          SenderId: "client-a",
+          From: "webchat:client-a",
+        },
+        "main",
+      ),
+    ).toBe("agent:main:webchat:direct:client-a");
   });
 
   it("uses custom main key when provided", () => {

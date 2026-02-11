@@ -4,6 +4,8 @@ import { makeTempWorkspace, writeWorkspaceFile } from "../test-helpers/workspace
 import {
   DEFAULT_MEMORY_ALT_FILENAME,
   DEFAULT_MEMORY_FILENAME,
+  DEFAULT_USER_FILENAME,
+  filterBootstrapFilesForSession,
   loadWorkspaceBootstrapFiles,
   resolveDefaultAgentWorkspaceDir,
 } from "./workspace.js";
@@ -57,5 +59,30 @@ describe("loadWorkspaceBootstrapFiles", () => {
     );
 
     expect(memoryEntries).toHaveLength(0);
+  });
+});
+
+describe("filterBootstrapFilesForSession", () => {
+  it("excludes USER.md for non-main agent sessions", () => {
+    const files = [
+      { name: DEFAULT_USER_FILENAME, path: "/tmp/USER.md", missing: false, content: "user" },
+      { name: "AGENTS.md", path: "/tmp/AGENTS.md", missing: false, content: "agent" },
+    ];
+
+    const filtered = filterBootstrapFilesForSession(files, "agent:main:telegram:direct:6254545718");
+
+    expect(filtered.some((file) => file.name === DEFAULT_USER_FILENAME)).toBe(false);
+    expect(filtered.some((file) => file.name === "AGENTS.md")).toBe(true);
+  });
+
+  it("keeps USER.md for main session", () => {
+    const files = [
+      { name: DEFAULT_USER_FILENAME, path: "/tmp/USER.md", missing: false, content: "user" },
+      { name: "AGENTS.md", path: "/tmp/AGENTS.md", missing: false, content: "agent" },
+    ];
+
+    const filtered = filterBootstrapFilesForSession(files, "agent:main:main");
+
+    expect(filtered.some((file) => file.name === DEFAULT_USER_FILENAME)).toBe(true);
   });
 });

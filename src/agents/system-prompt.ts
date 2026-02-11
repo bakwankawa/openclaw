@@ -110,6 +110,7 @@ function buildMessagingSection(params: {
     "- Reply in current session → automatically routes to the source channel (Signal, Telegram, etc.)",
     "- Cross-session messaging → use sessions_send(sessionKey, message)",
     "- Never use exec/curl for provider messaging; OpenClaw handles all routing internally.",
+    "- For uploaded tabular files (.csv/.tsv/.xlsx/.xls/.ods), prefer Session Files context/tools first; avoid Python-only dependencies (pandas/openpyxl) unless explicitly required.",
     params.availableTools.has("message")
       ? [
           "",
