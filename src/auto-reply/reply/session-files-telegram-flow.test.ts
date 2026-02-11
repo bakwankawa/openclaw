@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import * as XLSX from "xlsx";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { MsgContext } from "../templating.js";
 import { getFile, listFiles, getParsedCsv } from "../../sessions/files/storage.js";
@@ -136,6 +137,41 @@ describe("Telegram file upload flow - end-to-end", () => {
     expect(content).toContain("}");
     expect(content).not.toContain("```json");
     expect(content).not.toContain("```");
+  });
+
+  it("saves XLSX file from Telegram and stores it as tabular session file", async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet([
+        { name: "Alice", sales: 100 },
+        { name: "Bob", sales: 150 },
+      ]),
+      "Sales",
+    );
+    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const xlsxPath = path.join(testDir, "report.xlsx");
+    await fs.writeFile(xlsxPath, xlsxBuffer);
+
+    const ctx = createTelegramContext(
+      xlsxPath,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    const cfg = createTestConfig();
+
+    await persistSessionFiles({
+      ctx,
+      sessionId,
+      agentId,
+      cfg,
+      filesDir: testFilesDir,
+    });
+
+    const files = await listFiles({ sessionId, agentId, filesDir: testFilesDir });
+    expect(files).toHaveLength(1);
+    expect(files[0].type).toBe("xlsx");
+    expect(files[0].tabularSchema?.totalRows).toBe(2);
+    expect(files[0].tabularSchema?.mergedColumns).toEqual(["name", "sales", "__sheet"]);
   });
 
   it("saves text file from Telegram as .md", async () => {

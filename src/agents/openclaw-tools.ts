@@ -24,6 +24,7 @@ import {
   createSessionFilesGetTool,
   createSessionFilesListTool,
   createSessionFilesQueryCsvTool,
+  createSessionFilesQueryTabularTool,
   createSessionFilesSearchTool,
 } from "./tools/session-files-tool.js";
 import { createSessionStatusTool } from "./tools/session-status-tool.js";
@@ -115,6 +116,10 @@ export function createOpenClawTools(options?: {
     config: options?.config,
     agentSessionKey: options?.agentSessionKey,
   });
+  const sessionFilesQueryTabular = createSessionFilesQueryTabularTool({
+    config: options?.config,
+    agentSessionKey: options?.agentSessionKey,
+  });
   const sessionFilesSearch = createSessionFilesSearchTool({
     config: options?.config,
     agentSessionKey: options?.agentSessionKey,
@@ -181,6 +186,7 @@ export function createOpenClawTools(options?: {
     ...(sessionFilesList ? [sessionFilesList] : []),
     ...(sessionFilesGet ? [sessionFilesGet] : []),
     ...(sessionFilesQueryCsv ? [sessionFilesQueryCsv] : []),
+    ...(sessionFilesQueryTabular ? [sessionFilesQueryTabular] : []),
     ...(sessionFilesSearch ? [sessionFilesSearch] : []),
     ...(sessionFilesDelete ? [sessionFilesDelete] : []),
     ...(webSearchTool ? [webSearchTool] : []),

@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as XLSX from "xlsx";
 import type { MsgContext } from "../auto-reply/templating.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveApiKeyForProvider } from "../agents/model-auth.js";
@@ -583,6 +584,49 @@ describe("applyMediaUnderstanding", () => {
     expect(result.appliedFile).toBe(true);
     expect(ctx.Body).toContain('<file name="report.bin" mime="text/tab-separated-values">');
     expect(ctx.Body).toContain("a\tb\tc");
+  });
+
+  it("extracts xlsx attachment content into file block", async () => {
+    const { applyMediaUnderstanding } = await loadApply();
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-media-"));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet([
+        { product: "A", sales: 100 },
+        { product: "B", sales: 200 },
+      ]),
+      "Sales",
+    );
+    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const xlsxPath = path.join(dir, "report.xlsx");
+    await fs.writeFile(xlsxPath, xlsxBuffer);
+
+    const ctx: MsgContext = {
+      Body: "<media:file>",
+      MediaPath: xlsxPath,
+      MediaType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    };
+    const cfg: OpenClawConfig = {
+      tools: {
+        media: {
+          audio: { enabled: false },
+          image: { enabled: false },
+          video: { enabled: false },
+        },
+      },
+    };
+
+    const result = await applyMediaUnderstanding({ ctx, cfg });
+
+    expect(result.appliedFile).toBe(true);
+    expect(ctx.Body).toContain(
+      '<file name="report.xlsx" mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">',
+    );
+    expect(ctx.Body).toContain("Columns:");
+    expect(ctx.Body).toContain("product");
+    expect(ctx.Body).toContain("sales");
+    expect(ctx.Body).not.toContain("__sheet");
   });
 
   it("treats cp1252-like attachments as text", async () => {
