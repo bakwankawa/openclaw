@@ -38,6 +38,7 @@ import {
   type OpenAiEmbeddingClient,
   type VoyageEmbeddingClient,
 } from "./embeddings.js";
+import { extractSessionKeyFromMemoryFile } from "./extract-session-key.js";
 import { bm25RankToScore, buildFtsQuery, mergeHybridResults } from "./hybrid.js";
 import {
   buildFileEntry,
@@ -291,13 +292,13 @@ export class MemoryIndexManager implements MemorySearchManager {
     );
 
     const keywordResults = hybrid.enabled
-      ? await this.searchKeyword(cleaned, candidates).catch(() => [])
+      ? await this.searchKeyword(cleaned, candidates, opts?.sessionKey).catch(() => [])
       : [];
 
     const queryVec = await this.embedQueryWithTimeout(cleaned);
     const hasVector = queryVec.some((v) => v !== 0);
     const vectorResults = hasVector
-      ? await this.searchVector(queryVec, candidates).catch(() => [])
+      ? await this.searchVector(queryVec, candidates, opts?.sessionKey).catch(() => [])
       : [];
 
     if (!hybrid.enabled) {
@@ -317,6 +318,7 @@ export class MemoryIndexManager implements MemorySearchManager {
   private async searchVector(
     queryVec: number[],
     limit: number,
+    sessionKey?: string,
   ): Promise<Array<MemorySearchResult & { id: string }>> {
     const results = await searchVector({
       db: this.db,
@@ -328,6 +330,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       ensureVectorReady: async (dimensions) => await this.ensureVectorReady(dimensions),
       sourceFilterVec: this.buildSourceFilter("c"),
       sourceFilterChunks: this.buildSourceFilter(),
+      sessionKey,
     });
     return results.map((entry) => entry as MemorySearchResult & { id: string });
   }
@@ -339,23 +342,54 @@ export class MemoryIndexManager implements MemorySearchManager {
   private async searchKeyword(
     query: string,
     limit: number,
+    sessionKey?: string,
   ): Promise<Array<MemorySearchResult & { id: string; textScore: number }>> {
     if (!this.fts.enabled || !this.fts.available) {
       return [];
     }
     const sourceFilter = this.buildSourceFilter();
-    const results = await searchKeyword({
-      db: this.db,
-      ftsTable: FTS_TABLE,
-      providerModel: this.provider.model,
-      query,
-      limit,
-      snippetMaxChars: SNIPPET_MAX_CHARS,
-      sourceFilter,
-      buildFtsQuery: (raw) => this.buildFtsQuery(raw),
-      bm25RankToScore,
-    });
-    return results.map((entry) => entry as MemorySearchResult & { id: string; textScore: number });
+    try {
+      const results = await searchKeyword({
+        db: this.db,
+        ftsTable: FTS_TABLE,
+        providerModel: this.provider.model,
+        query,
+        limit,
+        snippetMaxChars: SNIPPET_MAX_CHARS,
+        sourceFilter,
+        buildFtsQuery: (raw) => this.buildFtsQuery(raw),
+        bm25RankToScore,
+        sessionKey,
+      });
+      return results.map(
+        (entry) => entry as MemorySearchResult & { id: string; textScore: number },
+      );
+    } catch (err) {
+      // Fallback for existing FTS tables without session_key column
+      const message = err instanceof Error ? err.message : String(err);
+      if (
+        sessionKey &&
+        (message.includes("no such column: session_key") || message.includes("no such column"))
+      ) {
+        // Retry without sessionKey filter for backward compatibility
+        const results = await searchKeyword({
+          db: this.db,
+          ftsTable: FTS_TABLE,
+          providerModel: this.provider.model,
+          query,
+          limit,
+          snippetMaxChars: SNIPPET_MAX_CHARS,
+          sourceFilter,
+          buildFtsQuery: (raw) => this.buildFtsQuery(raw),
+          bm25RankToScore,
+          sessionKey: undefined,
+        });
+        return results.map(
+          (entry) => entry as MemorySearchResult & { id: string; textScore: number },
+        );
+      }
+      throw err;
+    }
   }
 
   private mergeHybridResults(params: {
@@ -2315,6 +2349,10 @@ export class MemoryIndexManager implements MemorySearchManager {
     options: { source: MemorySource; content?: string },
   ) {
     const content = options.content ?? (await fs.readFile(entry.absPath, "utf-8"));
+
+    // Extract sessionKey from memory file metadata
+    const sessionKey = extractSessionKeyFromMemoryFile(content);
+
     const chunks = chunkMarkdown(content, this.settings.chunking).filter(
       (chunk) => chunk.text.trim().length > 0,
     );
@@ -2351,14 +2389,15 @@ export class MemoryIndexManager implements MemorySearchManager {
       );
       this.db
         .prepare(
-          `INSERT INTO chunks (id, path, source, start_line, end_line, hash, model, text, embedding, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO chunks (id, path, source, start_line, end_line, hash, model, text, embedding, updated_at, session_key)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              hash=excluded.hash,
              model=excluded.model,
              text=excluded.text,
              embedding=excluded.embedding,
-             updated_at=excluded.updated_at`,
+             updated_at=excluded.updated_at,
+             session_key=excluded.session_key`,
         )
         .run(
           id,
@@ -2371,6 +2410,7 @@ export class MemoryIndexManager implements MemorySearchManager {
           chunk.text,
           JSON.stringify(embedding),
           now,
+          sessionKey ?? null,
         );
       if (vectorReady && embedding.length > 0) {
         try {
@@ -2381,20 +2421,49 @@ export class MemoryIndexManager implements MemorySearchManager {
           .run(id, vectorToBlob(embedding));
       }
       if (this.fts.enabled && this.fts.available) {
-        this.db
-          .prepare(
-            `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line)\n` +
-              ` VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            chunk.text,
-            id,
-            entry.path,
-            options.source,
-            this.provider.model,
-            chunk.startLine,
-            chunk.endLine,
-          );
+        try {
+          // Try inserting with session_key (new schema)
+          this.db
+            .prepare(
+              `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line, session_key)\n` +
+                ` VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .run(
+              chunk.text,
+              id,
+              entry.path,
+              options.source,
+              this.provider.model,
+              chunk.startLine,
+              chunk.endLine,
+              sessionKey ?? null,
+            );
+        } catch (err) {
+          // Fallback for existing FTS tables without session_key column
+          // This handles databases created before session_key was added
+          const message = err instanceof Error ? err.message : String(err);
+          if (
+            message.includes("no such column: session_key") ||
+            message.includes("no such column")
+          ) {
+            this.db
+              .prepare(
+                `INSERT INTO ${FTS_TABLE} (text, id, path, source, model, start_line, end_line)\n` +
+                  ` VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              )
+              .run(
+                chunk.text,
+                id,
+                entry.path,
+                options.source,
+                this.provider.model,
+                chunk.startLine,
+                chunk.endLine,
+              );
+          } else {
+            throw err;
+          }
+        }
       }
     }
     this.db

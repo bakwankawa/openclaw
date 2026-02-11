@@ -27,11 +27,16 @@ export async function searchVector(params: {
   ensureVectorReady: (dimensions: number) => Promise<boolean>;
   sourceFilterVec: { sql: string; params: SearchSource[] };
   sourceFilterChunks: { sql: string; params: SearchSource[] };
+  sessionKey?: string;
 }): Promise<SearchRowResult[]> {
   if (params.queryVec.length === 0 || params.limit <= 0) {
     return [];
   }
   if (await params.ensureVectorReady(params.queryVec.length)) {
+    const sessionKeyFilter = params.sessionKey
+      ? " AND (c.session_key = ? OR c.session_key IS NULL)"
+      : "";
+    const sessionKeyParams = params.sessionKey ? [params.sessionKey] : [];
     const rows = params.db
       .prepare(
         `SELECT c.id, c.path, c.start_line, c.end_line, c.text,\n` +
@@ -39,7 +44,7 @@ export async function searchVector(params: {
           `       vec_distance_cosine(v.embedding, ?) AS dist\n` +
           `  FROM ${params.vectorTable} v\n` +
           `  JOIN chunks c ON c.id = v.id\n` +
-          ` WHERE c.model = ?${params.sourceFilterVec.sql}\n` +
+          ` WHERE c.model = ?${params.sourceFilterVec.sql}${sessionKeyFilter}\n` +
           ` ORDER BY dist ASC\n` +
           ` LIMIT ?`,
       )
@@ -47,6 +52,7 @@ export async function searchVector(params: {
         vectorToBlob(params.queryVec),
         params.providerModel,
         ...params.sourceFilterVec.params,
+        ...sessionKeyParams,
         params.limit,
       ) as Array<{
       id: string;
@@ -72,6 +78,7 @@ export async function searchVector(params: {
     db: params.db,
     providerModel: params.providerModel,
     sourceFilter: params.sourceFilterChunks,
+    sessionKey: params.sessionKey,
   });
   const scored = candidates
     .map((chunk) => ({
@@ -97,6 +104,7 @@ export function listChunks(params: {
   db: DatabaseSync;
   providerModel: string;
   sourceFilter: { sql: string; params: SearchSource[] };
+  sessionKey?: string;
 }): Array<{
   id: string;
   path: string;
@@ -106,13 +114,15 @@ export function listChunks(params: {
   embedding: number[];
   source: SearchSource;
 }> {
+  const sessionKeyFilter = params.sessionKey ? " AND (session_key = ? OR session_key IS NULL)" : "";
+  const sessionKeyParams = params.sessionKey ? [params.sessionKey] : [];
   const rows = params.db
     .prepare(
       `SELECT id, path, start_line, end_line, text, embedding, source\n` +
         `  FROM chunks\n` +
-        ` WHERE model = ?${params.sourceFilter.sql}`,
+        ` WHERE model = ?${params.sourceFilter.sql}${sessionKeyFilter}`,
     )
-    .all(params.providerModel, ...params.sourceFilter.params) as Array<{
+    .all(params.providerModel, ...params.sourceFilter.params, ...sessionKeyParams) as Array<{
     id: string;
     path: string;
     start_line: number;
@@ -143,6 +153,7 @@ export async function searchKeyword(params: {
   sourceFilter: { sql: string; params: SearchSource[] };
   buildFtsQuery: (raw: string) => string | null;
   bm25RankToScore: (rank: number) => number;
+  sessionKey?: string;
 }): Promise<Array<SearchRowResult & { textScore: number }>> {
   if (params.limit <= 0) {
     return [];
@@ -152,16 +163,24 @@ export async function searchKeyword(params: {
     return [];
   }
 
+  const sessionKeyFilter = params.sessionKey ? " AND (session_key = ? OR session_key IS NULL)" : "";
+  const sessionKeyParams = params.sessionKey ? [params.sessionKey] : [];
   const rows = params.db
     .prepare(
       `SELECT id, path, source, start_line, end_line, text,\n` +
         `       bm25(${params.ftsTable}) AS rank\n` +
         `  FROM ${params.ftsTable}\n` +
-        ` WHERE ${params.ftsTable} MATCH ? AND model = ?${params.sourceFilter.sql}\n` +
+        ` WHERE ${params.ftsTable} MATCH ? AND model = ?${params.sourceFilter.sql}${sessionKeyFilter}\n` +
         ` ORDER BY rank ASC\n` +
         ` LIMIT ?`,
     )
-    .all(ftsQuery, params.providerModel, ...params.sourceFilter.params, params.limit) as Array<{
+    .all(
+      ftsQuery,
+      params.providerModel,
+      ...params.sourceFilter.params,
+      ...sessionKeyParams,
+      params.limit,
+    ) as Array<{
     id: string;
     path: string;
     source: SearchSource;
