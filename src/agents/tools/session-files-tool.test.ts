@@ -4,6 +4,7 @@ import {
   createSessionFilesListTool,
   createSessionFilesGetTool,
   createSessionFilesQueryCsvTool,
+  createSessionFilesQueryTabularTool,
 } from "./session-files-tool.js";
 
 vi.mock("../../sessions/files/storage.js");
@@ -180,5 +181,42 @@ describe("session_files_query_csv tool", () => {
     const json = JSON.parse(content.text);
     expect(json.rows).toHaveLength(1);
     expect(json.rows[0].sales).toBe(2000);
+  });
+});
+
+describe("session_files_query_tabular tool", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("queries tabular file rows with numeric filters", async () => {
+    const mockParsed = {
+      columns: ["name", "sales", "__sheet"],
+      rows: [
+        { name: "Product A", sales: 1000, __sheet: "Sheet1" },
+        { name: "Product B", sales: 2000, __sheet: "Sheet1" },
+      ],
+    };
+    vi.spyOn(storage, "getParsedTabular").mockResolvedValue(mockParsed);
+
+    const tool = createSessionFilesQueryTabularTool({
+      config: {},
+      agentSessionKey: "agent:main:main",
+    });
+    expect(tool).toBeTruthy();
+
+    const result = await tool!.execute("call-1", {
+      sessionId: "test-session",
+      fileId: "file-1",
+      filterColumn: "sales",
+      filterOperator: "gt",
+      filterValue: 1500,
+    });
+    const content = result.content[0];
+    expect(content.type).toBe("text");
+    const json = JSON.parse(content.text);
+    expect(json.rows).toHaveLength(1);
+    expect(json.rows[0].name).toBe("Product B");
+    expect(json.columns).toEqual(["name", "sales", "__sheet"]);
   });
 });

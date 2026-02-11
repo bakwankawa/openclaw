@@ -13,6 +13,9 @@ import { saveFile } from "../../sessions/files/storage.js";
 const TEXT_EXT_MIME = new Map<string, string>([
   [".csv", "text/csv"],
   [".tsv", "text/tab-separated-values"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  [".xls", "application/vnd.ms-excel"],
+  [".ods", "application/vnd.oasis.opendocument.spreadsheet"],
   [".txt", "text/plain"],
   [".md", "text/markdown"],
   [".markdown", "text/markdown"],
@@ -32,6 +35,10 @@ function resolveTextMimeFromName(name?: string): string | undefined {
 
 const SUPPORTED_MIMES = new Set([
   "text/csv",
+  "text/tab-separated-values",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "application/vnd.oasis.opendocument.spreadsheet",
   "application/pdf",
   "text/plain",
   "text/markdown",
@@ -45,6 +52,18 @@ function mimeToFileType(mime: string): SessionFileType | null {
   }
   if (normalized === "text/csv") {
     return "csv";
+  }
+  if (normalized === "text/tab-separated-values") {
+    return "tsv";
+  }
+  if (normalized === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") {
+    return "xlsx";
+  }
+  if (normalized === "application/vnd.ms-excel") {
+    return "xls";
+  }
+  if (normalized === "application/vnd.oasis.opendocument.spreadsheet") {
+    return "ods";
   }
   if (normalized === "application/pdf") {
     return "pdf";

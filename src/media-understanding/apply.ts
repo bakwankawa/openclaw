@@ -62,6 +62,9 @@ const EXTRA_TEXT_MIMES = [
 const TEXT_EXT_MIME = new Map<string, string>([
   [".csv", "text/csv"],
   [".tsv", "text/tab-separated-values"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  [".xls", "application/vnd.ms-excel"],
+  [".ods", "application/vnd.oasis.opendocument.spreadsheet"],
   [".txt", "text/plain"],
   [".md", "text/markdown"],
   [".log", "text/plain"],

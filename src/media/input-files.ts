@@ -1,5 +1,6 @@
 import { fetchWithSsrFGuard } from "../infra/net/fetch-guard.js";
 import { logWarn } from "../logger.js";
+import { parseTabularFile } from "../sessions/files/tabular-parser.js";
 
 type CanvasModule = typeof import("@napi-rs/canvas");
 type PdfJsModule = typeof import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -95,6 +96,10 @@ export const DEFAULT_INPUT_FILE_MIMES = [
   "text/markdown",
   "text/html",
   "text/csv",
+  "text/tab-separated-values",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel",
+  "application/vnd.oasis.opendocument.spreadsheet",
   "application/json",
   "application/pdf",
 ];
@@ -349,6 +354,45 @@ export async function extractFileContentFromSource(params: {
       text,
       images: extracted.images.length > 0 ? extracted.images : undefined,
     };
+  }
+
+  const tabularMimeToType: Record<string, "csv" | "tsv" | "xlsx" | "xls" | "ods"> = {
+    "text/csv": "csv",
+    "text/tab-separated-values": "tsv",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.oasis.opendocument.spreadsheet": "ods",
+  };
+  const tabularType = tabularMimeToType[mimeType];
+  if (tabularType) {
+    if (tabularType === "csv" || tabularType === "tsv") {
+      const text = clampText(decodeTextContent(buffer, charset), limits.maxChars);
+      return { filename, text };
+    }
+    const parsed = await parseTabularFile({
+      type: tabularType,
+      filename,
+      buffer,
+    });
+    const visibleColumns = parsed.columns.filter((col) => col !== "__sheet");
+    const sampleRows = parsed.rows.slice(0, 30);
+    const lines = [
+      `Tabular file: ${filename}`,
+      `Sheets: ${parsed.sheets.map((sheet) => `${sheet.name}(${sheet.rowCount})`).join(", ")}`,
+      `Columns: ${visibleColumns.join(", ")}`,
+      `Rows: ${parsed.totalRows}`,
+      "",
+      ...sampleRows.map((row) =>
+        visibleColumns
+          .map((col) => {
+            const value = row[col];
+            return value == null ? "" : String(value);
+          })
+          .join("\t"),
+      ),
+    ];
+    const text = clampText(lines.join("\n"), limits.maxChars);
+    return { filename, text };
   }
 
   const text = clampText(decodeTextContent(buffer, charset), limits.maxChars);

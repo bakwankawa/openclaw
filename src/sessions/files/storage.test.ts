@@ -2,7 +2,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { saveFile, getFile, listFiles, deleteFile } from "./storage.js";
+import * as XLSX from "xlsx";
+import { saveFile, getFile, listFiles, deleteFile, getParsedCsv } from "./storage.js";
+import { MAX_TABULAR_ROWS } from "./tabular-parser.js";
 
 describe("file storage", () => {
   let testDir: string;
@@ -92,6 +94,116 @@ describe("file storage", () => {
     const files = await listFiles({ sessionId, agentId, filesDir: testDir });
     expect(files).toHaveLength(1);
     expect(files[0].csvSchema?.columns).toEqual(["name", "sales"]);
+  });
+
+  it("keeps getParsedCsv backward compatible without __sheet field", async () => {
+    const csv = "name,sales\nProduct A,1000\nProduct B,2000";
+    const fileId = await saveFile({
+      sessionId,
+      agentId,
+      filename: "legacy.csv",
+      type: "csv",
+      buffer: Buffer.from(csv, "utf-8"),
+      filesDir: testDir,
+    });
+
+    const parsed = await getParsedCsv({
+      sessionId,
+      agentId,
+      fileId,
+      filesDir: testDir,
+    });
+    expect(parsed.columns).toEqual(["name", "sales"]);
+    expect(parsed.rows[0]).toEqual({ name: "Product A", sales: 1000 });
+    expect(parsed.rows[1]).toEqual({ name: "Product B", sales: 2000 });
+  });
+
+  it("saves TSV and writes parsed tabular metadata", async () => {
+    const tsv = "name\tvalue\nalpha\t1\nbeta\t2";
+    const fileId = await saveFile({
+      sessionId,
+      agentId,
+      filename: "sample.tsv",
+      type: "tsv",
+      buffer: Buffer.from(tsv, "utf-8"),
+      filesDir: testDir,
+    });
+    const files = await listFiles({ sessionId, agentId, filesDir: testDir });
+    expect(files).toHaveLength(1);
+    expect(files[0].type).toBe("tsv");
+    expect(files[0].tabularSchema?.mergedColumns).toEqual(["name", "value", "__sheet"]);
+    const parsedPath = path.join(testDir, `${fileId}-sample.tsv.parsed.json`);
+    const parsed = JSON.parse(await fs.readFile(parsedPath, "utf-8")) as {
+      columns: string[];
+      rows: Record<string, unknown>[];
+    };
+    expect(parsed.columns).toEqual(["name", "value", "__sheet"]);
+    expect(parsed.rows).toHaveLength(2);
+  });
+
+  it("saves XLSX and writes merged multi-sheet metadata", async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet([{ product: "A", sales: 10 }]),
+      "SheetA",
+    );
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.json_to_sheet([{ product: "B", region: "SEA" }]),
+      "SheetB",
+    );
+    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+    const fileId = await saveFile({
+      sessionId,
+      agentId,
+      filename: "report.xlsx",
+      type: "xlsx",
+      buffer: xlsxBuffer,
+      filesDir: testDir,
+    });
+
+    const files = await listFiles({ sessionId, agentId, filesDir: testDir });
+    expect(files).toHaveLength(1);
+    expect(files[0].type).toBe("xlsx");
+    expect(files[0].tabularSchema?.totalRows).toBe(2);
+    expect(files[0].tabularSchema?.sheets).toEqual([
+      { name: "SheetA", columns: ["product", "sales"], rowCount: 1 },
+      { name: "SheetB", columns: ["product", "region"], rowCount: 1 },
+    ]);
+
+    const parsedPath = path.join(testDir, `${fileId}-report.xlsx.parsed.json`);
+    const parsed = JSON.parse(await fs.readFile(parsedPath, "utf-8")) as {
+      columns: string[];
+      rows: Record<string, unknown>[];
+    };
+    expect(parsed.columns).toEqual(["product", "sales", "region", "__sheet"]);
+    expect(parsed.rows).toHaveLength(2);
+  });
+
+  it("stores truncation metadata for oversized tabular files", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    for (let i = 0; i < MAX_TABULAR_ROWS + 5; i++) {
+      rows.push({ idx: i, amount: i * 10 });
+    }
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "Big");
+    const xlsxBuffer = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    await saveFile({
+      sessionId,
+      agentId,
+      filename: "big.xlsx",
+      type: "xlsx",
+      buffer: xlsxBuffer,
+      filesDir: testDir,
+    });
+
+    const files = await listFiles({ sessionId, agentId, filesDir: testDir });
+    expect(files).toHaveLength(1);
+    expect(files[0].tabularSchema?.truncated).toBe(true);
+    expect(files[0].tabularSchema?.truncatedRows).toBe(5);
+    expect(files[0].tabularSchema?.totalRows).toBe(MAX_TABULAR_ROWS);
   });
 
   it("lists all files in session", async () => {

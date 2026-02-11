@@ -1,4 +1,4 @@
-export type SessionFileType = "csv" | "pdf" | "text" | "json";
+export type SessionFileType = "csv" | "tsv" | "xlsx" | "xls" | "ods" | "pdf" | "text" | "json";
 
 export type SessionFileMetadata = {
   id: string;
@@ -11,6 +11,18 @@ export type SessionFileMetadata = {
   csvSchema?: {
     columns: string[];
     rowCount: number;
+  };
+  tabularSchema?: {
+    sheets: Array<{
+      name: string;
+      columns: string[];
+      rowCount: number;
+    }>;
+    totalRows: number;
+    mergedColumns: string[];
+    truncated?: boolean;
+    truncatedRows?: number;
+    truncatedColumns?: number;
   };
 };
 

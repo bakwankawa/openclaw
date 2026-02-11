@@ -7,7 +7,13 @@ import { loadSessionStore } from "../../config/sessions/store.js";
 import { buildAgentMainSessionKey, DEFAULT_AGENT_ID } from "../../routing/session-key.js";
 import { queryCsv } from "../../sessions/files/csv-query.js";
 import { searchText } from "../../sessions/files/pdf-search.js";
-import { listFiles, getFile, getParsedCsv, deleteFile } from "../../sessions/files/storage.js";
+import {
+  listFiles,
+  getFile,
+  getParsedCsv,
+  getParsedTabular,
+  deleteFile,
+} from "../../sessions/files/storage.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
 import { jsonResult, readStringParam, readNumberParam } from "./common.js";
 import { resolveInternalSessionKey, resolveMainSessionAlias } from "./sessions-helpers.js";
@@ -100,6 +106,36 @@ const SessionFilesQueryCsvSchema = Type.Object({
   ),
 });
 
+const SessionFilesQueryTabularSchema = Type.Object({
+  sessionId: Type.Optional(
+    Type.String({
+      description:
+        "Session ID to query tabular data from (optional, uses current session if not provided)",
+    }),
+  ),
+  fileId: Type.String({
+    description: "Tabular file ID to query (CSV, TSV, XLSX, XLS, ODS)",
+  }),
+  filterColumn: Type.Optional(Type.String({ description: "Column name to filter on" })),
+  filterOperator: Type.Optional(
+    Type.Union([
+      Type.Literal("eq"),
+      Type.Literal("gt"),
+      Type.Literal("lt"),
+      Type.Literal("gte"),
+      Type.Literal("lte"),
+      Type.Literal("contains"),
+      Type.Literal("startsWith"),
+      Type.Literal("endsWith"),
+    ]),
+  ),
+  filterValue: Type.Optional(Type.Union([Type.String(), Type.Number()])),
+  limit: Type.Optional(Type.Number({ description: "Maximum number of rows to return" })),
+  selectColumns: Type.Optional(
+    Type.Array(Type.String(), { description: "Columns to include in results" }),
+  ),
+});
+
 const SessionFilesSearchSchema = Type.Object({
   sessionId: Type.Optional(
     Type.String({
@@ -137,7 +173,7 @@ export function createSessionFilesListTool(options: {
     label: "Session Files List",
     name: "session_files_list",
     description:
-      "List all files stored for a session. Note: All files are stored with .md file extension, but content remains in original format (CSV files contain raw CSV, JSON files contain raw JSON, PDF files contain extracted text, text files contain raw text). The 'type' field indicates the original content type.",
+      "List all files stored for a session. Note: All files are stored with .md file extension, but content remains in original format (raw CSV/TSV, spreadsheet summary for XLSX/XLS/ODS, raw JSON, extracted PDF text, raw text). The 'type' field indicates the original content type.",
     parameters: SessionFilesListSchema,
     execute: async (_toolCallId, params) => {
       let sessionId = readStringParam(params, "sessionId");
@@ -183,7 +219,7 @@ export function createSessionFilesGetTool(options: {
     label: "Session Files Get",
     name: "session_files_get",
     description:
-      "Get file content and metadata by file ID. Note: All files are stored with .md file extension, but content is returned in original format (raw CSV, raw JSON, extracted PDF text, raw text). The 'type' field in metadata indicates the original content type.",
+      "Get file content and metadata by file ID. Note: All files are stored with .md file extension, but content is returned in original format (raw CSV/TSV, spreadsheet summary for XLSX/XLS/ODS, raw JSON, extracted PDF text, raw text). The 'type' field in metadata indicates the original content type.",
     parameters: SessionFilesGetSchema,
     execute: async (_toolCallId, params) => {
       let sessionId = readStringParam(params, "sessionId");
@@ -268,7 +304,84 @@ export function createSessionFilesQueryCsvTool(options: {
           filter = {
             column: filterColumn,
             operator: filterOperator,
-            value: typeof filterValueRaw === "number" ? filterValueRaw : filterValueRaw,
+            value: filterValueRaw,
+          };
+        }
+        const selectColumns =
+          Array.isArray(selectColumnsRaw) && selectColumnsRaw.every((c) => typeof c === "string")
+            ? selectColumnsRaw
+            : undefined;
+
+        const result = queryCsv({
+          rows: parsed.rows,
+          columns: parsed.columns,
+          filter,
+          limit,
+          selectColumns,
+        });
+        return jsonResult(result);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return jsonResult({ rows: [], total: 0, columns: [], error: message });
+      }
+    },
+  };
+}
+
+export function createSessionFilesQueryTabularTool(options: {
+  config?: OpenClawConfig;
+  agentSessionKey?: string;
+}): AnyAgentTool | null {
+  const cfg = options.config;
+  if (!cfg || cfg.session?.files?.enabled === false) {
+    return null;
+  }
+  const agentId = resolveSessionAgentId({
+    sessionKey: options.agentSessionKey,
+    config: cfg,
+  });
+  return {
+    label: "Session Files Query Tabular",
+    name: "session_files_query_tabular",
+    description:
+      "Query tabular files (CSV, TSV, XLSX, XLS, ODS) with filters. Supports filtering by column values, limiting results, and selecting specific columns.",
+    parameters: SessionFilesQueryTabularSchema,
+    execute: async (_toolCallId, params) => {
+      let sessionId = readStringParam(params, "sessionId");
+      if (!sessionId) {
+        sessionId =
+          resolveSessionIdFromKey({
+            sessionKey: options.agentSessionKey,
+            cfg,
+            agentId,
+          }) ?? undefined;
+      }
+      if (!sessionId) {
+        return jsonResult({
+          rows: [],
+          total: 0,
+          columns: [],
+          error:
+            "sessionId is required. Provide sessionId parameter or ensure agentSessionKey is set.",
+        });
+      }
+      const fileId = readStringParam(params, "fileId", { required: true });
+      const filterColumn = readStringParam(params, "filterColumn");
+      const filterOperator = readStringParam(params, "filterOperator") as
+        | CsvQueryFilter["operator"]
+        | undefined;
+      const filterValueRaw = params.filterValue;
+      const limit = readNumberParam(params, "limit");
+      const selectColumnsRaw = params.selectColumns;
+
+      try {
+        const parsed = await getParsedTabular({ sessionId, agentId, fileId });
+        let filter: CsvQueryFilter | undefined;
+        if (filterColumn && filterOperator && filterValueRaw !== undefined) {
+          filter = {
+            column: filterColumn,
+            operator: filterOperator,
+            value: filterValueRaw,
           };
         }
         const selectColumns =
@@ -336,7 +449,7 @@ export function createSessionFilesSearchTool(options: {
         if (metadata.type !== "pdf" && metadata.type !== "text") {
           return jsonResult({
             matches: [],
-            error: `File type ${metadata.type} is not searchable. Use session_files_query_csv for CSV files.`,
+            error: `File type ${metadata.type} is not searchable. Use session_files_query_tabular for tabular files.`,
           });
         }
         const content = buffer.toString("utf-8");

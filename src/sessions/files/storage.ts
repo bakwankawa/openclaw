@@ -5,9 +5,9 @@ import type { InputFileLimits } from "../../media/input-files.js";
 import type { SessionFileType, SessionFileMetadata } from "./types.js";
 import { logVerbose, shouldLogVerbose } from "../../globals.js";
 import { extractPdfContent } from "../../media/input-files.js";
-import { parseCsv } from "./csv-parser.js";
 import { loadIndex, addFileToIndex, removeFileFromIndex } from "./index.js";
 import { resolveSessionFilesDir } from "./paths.js";
+import { parseTabularFile, type ParsedTabularResult } from "./tabular-parser.js";
 
 // PDF extraction limits for session file storage
 // These are more lenient than input file processing limits since files are stored for later use
@@ -18,6 +18,42 @@ const SESSION_FILE_PDF_MAX_PIXELS = 10_000_000;
 const SESSION_FILE_PDF_MIN_TEXT_CHARS = 10;
 const SESSION_FILE_PDF_MAX_REDIRECTS = 5;
 const SESSION_FILE_PDF_TIMEOUT_MS = 30_000;
+const TABULAR_FILE_TYPES = new Set<SessionFileType>(["csv", "tsv", "xlsx", "xls", "ods"]);
+
+export type ParsedTabularData = {
+  columns: string[];
+  rows: Record<string, unknown>[];
+  sheets?: Array<{ name: string; columns: string[]; rowCount: number }>;
+  totalRows?: number;
+  truncated?: boolean;
+  truncatedRows?: number;
+  truncatedColumns?: number;
+};
+
+function formatTabularContent(params: {
+  filename: string;
+  columns: string[];
+  rows: Record<string, unknown>[];
+  maxRows?: number;
+}): string {
+  const { filename, columns, rows, maxRows = 100 } = params;
+  const limitedRows = rows.slice(0, maxRows);
+  const lines = [
+    `Tabular file: ${filename}`,
+    `Columns: ${columns.join(", ")}`,
+    `Rows: ${rows.length}`,
+    "",
+    ...limitedRows.map((row) =>
+      columns
+        .map((col) => {
+          const value = row[col];
+          return value == null ? "" : String(value);
+        })
+        .join("\t"),
+    ),
+  ];
+  return lines.join("\n");
+}
 
 export async function saveFile(params: {
   sessionId: string;
@@ -41,7 +77,18 @@ export async function saveFile(params: {
 
   await fs.mkdir(baseDir, { recursive: true });
 
-  // Save raw content (no conversion)
+  const isTabular = TABULAR_FILE_TYPES.has(type);
+  let parsedTabular: ParsedTabularResult | undefined;
+
+  if (isTabular) {
+    parsedTabular = await parseTabularFile({
+      type,
+      filename: sanitizedFilename,
+      buffer,
+    });
+  }
+
+  // Save content as readable UTF-8 text in .md for all types.
   let content: string;
   if (type === "pdf") {
     // PDF still needs extraction (can't store as raw binary). Extracted text is saved as raw content.
@@ -70,8 +117,14 @@ export async function saveFile(params: {
       // Save error message so users/agents know extraction failed (instead of empty string)
       content = `[PDF extraction failed: ${errorMessage}]`;
     }
+  } else if (parsedTabular && (type === "xlsx" || type === "xls" || type === "ods")) {
+    content = formatTabularContent({
+      filename: sanitizedFilename,
+      columns: parsedTabular.columns,
+      rows: parsedTabular.rows,
+    });
   } else {
-    // All other types: save raw content
+    // Non-PDF, non-tabular types: save raw content
     content = buffer.toString("utf-8");
   }
   await fs.writeFile(mdPath, content, "utf-8");
@@ -86,16 +139,23 @@ export async function saveFile(params: {
     expiresAt: Date.now() + retentionDays * 24 * 60 * 60 * 1000,
   };
 
-  // Parse CSV if needed
-  if (type === "csv") {
-    const csvText = buffer.toString("utf-8");
-    const parsed = parseCsv(csvText);
+  if (parsedTabular) {
     const parsedPath = path.join(baseDir, `${fileBase}.parsed.json`);
-    await fs.writeFile(parsedPath, JSON.stringify(parsed, null, 2));
-    metadata.csvSchema = {
-      columns: parsed.columns,
-      rowCount: parsed.rows.length,
+    await fs.writeFile(parsedPath, JSON.stringify(parsedTabular, null, 2));
+    metadata.tabularSchema = {
+      sheets: parsedTabular.sheets,
+      totalRows: parsedTabular.totalRows,
+      mergedColumns: parsedTabular.columns,
+      truncated: parsedTabular.truncated,
+      truncatedRows: parsedTabular.truncatedRows,
+      truncatedColumns: parsedTabular.truncatedColumns,
     };
+    if (type === "csv") {
+      metadata.csvSchema = {
+        columns: parsedTabular.columns.filter((col) => col !== "__sheet"),
+        rowCount: parsedTabular.totalRows,
+      };
+    }
   }
 
   await addFileToIndex(indexPath, metadata);
@@ -153,6 +213,7 @@ export async function getParsedCsv(params: {
   fileId: string;
   filesDir?: string;
 }): Promise<{ columns: string[]; rows: Record<string, unknown>[] }> {
+  const parsed = await getParsedTabular(params);
   const { sessionId, agentId, fileId, filesDir } = params;
   const baseDir = filesDir ?? resolveSessionFilesDir(sessionId, agentId);
   const indexPath = path.join(baseDir, "index.json");
@@ -164,12 +225,49 @@ export async function getParsedCsv(params: {
   if (file.type !== "csv") {
     throw new Error(`File ${fileId} is not a CSV file`);
   }
+  const columns = parsed.columns.filter((col) => col !== "__sheet");
+  const rows = parsed.rows.map((row) => {
+    const next: Record<string, unknown> = {};
+    for (const col of columns) {
+      next[col] = row[col];
+    }
+    return next;
+  });
+  return { columns, rows };
+}
+
+export async function getParsedTabular(params: {
+  sessionId: string;
+  agentId?: string;
+  fileId: string;
+  filesDir?: string;
+}): Promise<ParsedTabularData> {
+  const { sessionId, agentId, fileId, filesDir } = params;
+  const baseDir = filesDir ?? resolveSessionFilesDir(sessionId, agentId);
+  const indexPath = path.join(baseDir, "index.json");
+  const index = await loadIndex(indexPath);
+  const file = index.files.find((f) => f.id === fileId);
+  if (!file) {
+    throw new Error(`File ${fileId} not found`);
+  }
+  if (!TABULAR_FILE_TYPES.has(file.type)) {
+    throw new Error(`File ${fileId} is not a tabular file`);
+  }
   // Sanitize filename from metadata to prevent path traversal (defense in depth)
   const sanitizedFilename = path.basename(file.filename);
   const fileBase = `${fileId}-${sanitizedFilename}`;
   const parsedPath = path.join(baseDir, `${fileBase}.parsed.json`);
   const content = await fs.readFile(parsedPath, "utf-8");
-  return JSON.parse(content) as { columns: string[]; rows: Record<string, unknown>[] };
+  const parsed = JSON.parse(content) as ParsedTabularData;
+  return {
+    columns: parsed.columns ?? [],
+    rows: parsed.rows ?? [],
+    sheets: parsed.sheets,
+    totalRows: parsed.totalRows,
+    truncated: parsed.truncated ?? false,
+    truncatedRows: parsed.truncatedRows ?? 0,
+    truncatedColumns: parsed.truncatedColumns ?? 0,
+  };
 }
 
 export async function deleteFile(params: {
@@ -197,7 +295,7 @@ export async function deleteFile(params: {
   // Also try to delete .raw for cleanup (backward compatibility)
   await fs.unlink(rawPath).catch(() => {});
 
-  if (file.type === "csv") {
+  if (TABULAR_FILE_TYPES.has(file.type)) {
     const parsedPath = path.join(baseDir, `${fileBase}.parsed.json`);
     await fs.unlink(parsedPath).catch(() => {});
   }

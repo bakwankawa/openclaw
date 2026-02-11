@@ -168,6 +168,8 @@ Supports base64 or URL sources:
 ```
 
 Allowed MIME types (current): `text/plain`, `text/markdown`, `text/html`, `text/csv`,
+`text/tab-separated-values`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+`application/vnd.ms-excel`, `application/vnd.oasis.opendocument.spreadsheet`,
 `application/json`, `application/pdf`.
 
 Max size (current): 5MB.
@@ -207,6 +209,10 @@ Defaults can be tuned under `gateway.http.endpoints.responses`:
               "text/markdown",
               "text/html",
               "text/csv",
+              "text/tab-separated-values",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "application/vnd.ms-excel",
+              "application/vnd.oasis.opendocument.spreadsheet",
               "application/json",
               "application/pdf",
             ],
