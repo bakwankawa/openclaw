@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { SessionFileMetadata, SessionFilesIndex } from "./types.js";
+import { shouldUseHdSessionFiles } from "../../extensions/hd/session-files-adapter.js";
 
 export async function loadIndex(indexPath: string): Promise<SessionFilesIndex> {
   try {
@@ -33,3 +34,5 @@ export async function removeFileFromIndex(indexPath: string, fileId: string): Pr
   index.files = index.files.filter((f) => f.id !== fileId);
   await saveIndex(indexPath, index);
 }
+
+export { shouldUseHdSessionFiles };

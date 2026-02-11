@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import type { SessionFileMetadata, SessionFilesIndex } from "./types.js";
-import { loadIndex, saveIndex, addFileToIndex } from "./index.js";
+import { loadIndex, saveIndex, addFileToIndex, shouldUseHdSessionFiles } from "./index.js";
 
 describe("index manager", () => {
   let testDir: string;
@@ -70,5 +70,19 @@ describe("index manager", () => {
     const index = await loadIndex(indexPath);
     expect(index.files).toHaveLength(1);
     expect(index.files[0].id).toBe("file-1");
+  });
+
+  it("routes to HD adapter when HD_SESSION_FILES_ENABLED=1", () => {
+    const original = process.env.HD_SESSION_FILES_ENABLED;
+    process.env.HD_SESSION_FILES_ENABLED = "1";
+    try {
+      expect(shouldUseHdSessionFiles()).toBe(true);
+    } finally {
+      if (original === undefined) {
+        delete process.env.HD_SESSION_FILES_ENABLED;
+      } else {
+        process.env.HD_SESSION_FILES_ENABLED = original;
+      }
+    }
   });
 });
